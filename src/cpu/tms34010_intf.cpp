@@ -3,7 +3,12 @@
 #include "tms34010_intf.h"
 
 #define ADDR_BITS   32
+#ifndef PAGE_SIZE
 #define PAGE_SIZE   0x1000
+#else
+#undef PAGE_SIZE
+#define PAGE_SIZE   0x1000
+#endif
 #define PAGE_SIZE_8 (0x1000 >> 3)
 #define PAGE_SHIFT  12
 #define PAGE_MASK   0xFFF
@@ -99,6 +104,8 @@ cpu_core_config TMS34010Config =
 	TMS34010Run,
 	TMS34010RunEnd,
 	TMS34010Reset,
+	NULL,
+	NULL,          // 修复：补齐新增的回调函数指针占位符，防止与 0x100000000ULL 错位
 	0x100000000ULL,
 	0
 };
@@ -317,4 +324,3 @@ int TMS34010SetHandlers(UINT32 num, pTMS34010ReadHandler rhandler, pTMS34010Writ
     g_mmap.write[num] = whandler;
     return 0;
 }
-

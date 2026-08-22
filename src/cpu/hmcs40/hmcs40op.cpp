@@ -1,3 +1,4 @@
+#ifdef _HMCS40_BUILD_
 // license:BSD-3-Clause
 // copyright-holders:hap
 
@@ -687,3 +688,5 @@ static void op_p()
 		write_r(3, (data >> 4) & 0xf);
 	}
 }
+
+#endif

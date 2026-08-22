@@ -1,3 +1,11 @@
+#include <ctype.h>
+#ifndef _totlower
+#define _totlower tolower
+#endif
+#ifndef _totupper
+#define _totupper toupper
+#endif
+
 #include "burner.h"
 #include "cdlist.h"
 #include "neocdlist.h"

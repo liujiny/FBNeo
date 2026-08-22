@@ -1,3 +1,4 @@
+#define _HMCS40_BUILD_
 // license:BSD-3-Clause
 // copyright-holders:hap
 /*
