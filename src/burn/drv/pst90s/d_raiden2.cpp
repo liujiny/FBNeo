@@ -3260,7 +3260,7 @@ static INT32 DrvExit()
 static inline UINT32 alpha_blend(UINT32 d, UINT32 s)
 {
 	return (((((s & 0xff00ff) * 0x7f) + ((d & 0xff00ff) * 0x81)) & 0xff00ff00) +
-		((((s & 0x00ff00) * 0x7f) + ((d & 0x00ff00) * 0x81)) & 0x00ff0000)) / 0x100;
+		((((s & 0x00ff00) * 0x7f) + ((d & 0x00ff00) * 0x81)) & 0x00ff0000)) >> 8;
 }
 
 static void draw_layer(UINT8 *ram, INT32 scr, UINT32 color_base, INT32 bank)
@@ -3306,7 +3306,7 @@ static void draw_layer(UINT8 *ram, INT32 scr, UINT32 color_base, INT32 bank)
 						if (pxl != 0x0f)
 						{
 							if (alpha[pxl]) {
-								dst[sx] = alpha_blend(dst[sx], pal[pxl]);
+								dst[sx] = pal[pxl];
 							} else {
 								dst[sx] = pal[pxl];
 							}
@@ -3354,7 +3354,7 @@ static void draw_txt_layer()
 						if (pxl != 0x0f)
 						{
 							if (alpha[pxl]) {
-								dst[sx] = alpha_blend(dst[sx], pal[pxl]);
+								dst[sx] = pal[pxl];
 							} else {
 								dst[sx] = pal[pxl];
 							}
@@ -3382,20 +3382,25 @@ static void draw_single_sprite(INT32 code, INT32 color, INT32 sx, INT32 sy, INT3
 
 		for (INT32 y = 0; y < 16; y++, sy++) {
 			if (sy >= 0 && sy < nScreenHeight) {
-				for (INT32 x = 0; x < 16; x++, sx++) {
-					if (sx < 0 || sx >= nScreenWidth) continue;
+				UINT8 *src = gfx + ((y * 16) ^ flip);
+				INT32 startx = sx;
+				INT32 endx = sx + 16;
+				INT32 srcadd = 0;
 
-					INT32 pxl = gfx[(y*16+x)^flip];
-					if (pxl != 0x0f)
-					{
-						if (alpha[pxl]) {
-							dst[sx] = alpha_blend(dst[sx], pal[pxl]);
-						} else {
-							dst[sx] = pal[pxl];
-						}
-					}	
+				if (startx < 0) {
+					srcadd = -startx;
+					startx = 0;
 				}
-				sx -= 16;
+				if (endx > nScreenWidth) endx = nScreenWidth;
+
+				src += srcadd;
+
+				for (INT32 x = startx; x < endx; x++) {
+					INT32 pxl = *src++;
+					if (pxl != 0x0f) {
+						dst[x] = pal[pxl];
+					}
+				}
 			}
 			dst += nScreenWidth;
 		}
@@ -3410,6 +3415,7 @@ static void draw_sprites(INT32 priority)
 	UINT16 *source = sprites + sprites_cur_start/2;
 
 	while( source >= sprites ){
+		INT32 attr = BURN_ENDIAN_SWAP_INT16(source[0]);
 		INT32 tile_number = BURN_ENDIAN_SWAP_INT16(source[1]);
 		INT32 sx = BURN_ENDIAN_SWAP_INT16(source[2]);
 		INT32 sy = BURN_ENDIAN_SWAP_INT16(source[3]);
@@ -3420,15 +3426,15 @@ static void draw_sprites(INT32 priority)
 		INT32 xstep, ystep;
 		INT32 pri;
 
-		ytlim = (BURN_ENDIAN_SWAP_INT16(source[0]) >> 12) & 0x7;
-		xtlim = (BURN_ENDIAN_SWAP_INT16(source[0]) >> 8 ) & 0x7;
+		ytlim = (attr >> 12) & 0x7;
+		xtlim = (attr >> 8 ) & 0x7;
 
-		xflip = (BURN_ENDIAN_SWAP_INT16(source[0]) >> 15) & 0x1;
-		yflip = (BURN_ENDIAN_SWAP_INT16(source[0]) >> 11) & 0x1;
+		xflip = (attr >> 15) & 0x1;
+		yflip = (attr >> 11) & 0x1;
 
-		colr = BURN_ENDIAN_SWAP_INT16(source[0]) & 0x3f;
+		colr = attr & 0x3f;
 
-		pri = (BURN_ENDIAN_SWAP_INT16(source[0]) >> 6) & 3;
+		pri = (attr >> 6) & 3;
 
 		if (pri != priority) {
 			source -= 4;
@@ -3494,8 +3500,9 @@ static INT32 DrvDraw()
 	if (nBurnLayer & 8) draw_sprites(3);
 	if (nSpriteEnable & 8) if (~layer_enable & 8) draw_txt_layer();
 
+	UINT16 *dst = (UINT16 *)pBurnDraw;
 	for (INT32 i = 0; i < nScreenWidth * nScreenHeight; i++) {
-		PutPix(pBurnDraw + (i * nBurnBpp), BurnHighCol(bitmap32[i]>>16, (bitmap32[i]>>8)&0xff, bitmap32[i]&0xff, 0));
+		dst[i] = BurnHighCol(bitmap32[i]>>16, (bitmap32[i]>>8)&0xff, bitmap32[i]&0xff, 0);
 	}
 	return 0;
 }
@@ -3520,13 +3527,13 @@ static INT32 ZeroteamDraw() // sprite priorities different
 	}
 
 	if (nSpriteEnable & 1) if (~layer_enable & 1) draw_layer(DrvBgRAM, 0, 0x400, bg_bank);
-	if (nBurnLayer & 1) draw_sprites(0);
+	//if (nBurnLayer & 1) draw_sprites(0);
 	if (nSpriteEnable & 2) if (~layer_enable & 2) draw_layer(DrvMgRAM, 1, 0x600, mg_bank);
-	if (nBurnLayer & 2) draw_sprites(1);
+	//if (nBurnLayer & 2) draw_sprites(1);
 	if (nSpriteEnable & 4) if (~layer_enable & 4) draw_layer(DrvFgRAM, 2, 0x500, fg_bank);
-	if (nBurnLayer & 4) draw_sprites(2);
+	//if (nBurnLayer & 4) draw_sprites(2);
 	if (nSpriteEnable & 8) if (~layer_enable & 8) draw_txt_layer();
-	if (nBurnLayer & 8) draw_sprites(3);
+	//if (nBurnLayer & 8) draw_sprites(3);
 
 	for (INT32 i = 0; i < nScreenWidth * nScreenHeight; i++) {
 		PutPix(pBurnDraw + (i * nBurnBpp), BurnHighCol(bitmap32[i]>>16, (bitmap32[i]>>8)&0xff, bitmap32[i]&0xff, 0));
@@ -3566,7 +3573,7 @@ static INT32 DrvFrame()
 
 	compile_inputs();
 
-	INT32 nInterleave = 128;
+	INT32 nInterleave = 32;
 	INT32 nCyclesTotal[2] = { (16000000 * 100) / 5547, (3579545 * 100) / 5547 };
 	INT32 nCyclesDone[2] = { 0, 0 };
 
@@ -3575,6 +3582,7 @@ static INT32 DrvFrame()
 
 	for (INT32 i = 0; i < nInterleave; i++)
 	{
+		CPU_RUN(0, Vez);
 		CPU_RUN(0, Vez);
 		if (i == (nInterleave-2)) VezSetIRQLineAndVector(0, 0xc0/4, CPU_IRQSTATUS_ACK);
 
@@ -6083,3 +6091,5 @@ struct BurnDriver BurnDrvNzteamp = {
 	NzeroteamInit, DrvExit, DrvFrame, ZeroteamDraw, DrvScan, &DrvRecalc, 0x800,
 	320, 256, 4, 3
 };
+
+// sprite blend test build
