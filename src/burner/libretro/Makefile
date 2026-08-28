@@ -260,7 +260,7 @@ else ifeq ($(platform), orbis-dynamic)
 	CXX := clang++
 	LD := ld.lld
 	PLATFORM_DEFINES += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
-	fpic :=
+	fpic := -fPIC
 	CFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
 	CFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
 	CFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
