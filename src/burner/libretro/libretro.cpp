@@ -2263,7 +2263,7 @@ end:
 	RomDataExit();
 	IpsPatchExit();
 
-	return true;
+	return false;
 }
 
 static int retro_dat_romset_path(const struct retro_game_info* info)
