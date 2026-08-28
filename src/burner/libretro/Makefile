@@ -276,7 +276,7 @@ else ifeq ($(platform), orbis-dynamic)
 	LDFLAGS += --version-script=$(VERSION_SCRIPT)
 	LIBS := $(filter-out -lm,$(LIBS))
 	LIBS += $(OO_PS4_TOOLCHAIN)/lib/crtlib.o
-	LIBS += -L$(OO_PS4_TOOLCHAIN)/lib $(OO_PS4_TOOLCHAIN)/lib/libc++.a $(OO_PS4_TOOLCHAIN)/lib/libc++abi.a $(OO_PS4_TOOLCHAIN)/lib/libunwind.a $(OO_PS4_TOOLCHAIN)/lib/libpthread.a
+	LIBS += -L$(OO_PS4_TOOLCHAIN)/lib $(OO_PS4_TOOLCHAIN)/lib/libc++.a $(OO_PS4_TOOLCHAIN)/lib/libc++abi.a $(OO_PS4_TOOLCHAIN)/lib/libunwind.a $(OO_PS4_TOOLCHAIN)/lib/libpthread.a $(OO_PS4_TOOLCHAIN)/lib/libc.a
 	PS4_DYNAMIC_ALLOCATOR_DIR := $(CURDIR)/.orbis-dynamic-allocator
 	PS4_DYNAMIC_ALLOCATOR_NAMES := malloc.lo strdup.lo \
 		__errno_location.lo expand_heap.lo libc.lo madvise.lo mmap.lo \
