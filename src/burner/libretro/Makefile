@@ -825,7 +825,7 @@ ifeq ($(SPLIT_UP_LINK), 1)
 	$(LD) $(LINKOUT)$@ $(SHARED) @$@.in $(LDFLAGS) $(LIBS)
 	@rm $@.in
 else
-	$(LD) $(LINKOUT)$@ $(SHARED) $^ $(LDFLAGS) $(LIBS)
+	$(LD) $(LINKOUT)$@ $(SHARED) $(OBJS) $(LDFLAGS) $(LIBS)
 endif
 endif
 
