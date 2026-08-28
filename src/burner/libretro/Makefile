@@ -277,7 +277,6 @@ else ifeq ($(platform), orbis-dynamic)
 	LDFLAGS += --allow-multiple-definition
 	LIBS := $(filter-out -lm,$(LIBS))
 	LIBS += $(OO_PS4_TOOLCHAIN)/lib/crtlib.o
-	LIBS += -L$(OO_PS4_TOOLCHAIN)/lib $(OO_PS4_TOOLCHAIN)/lib/libc++.a $(OO_PS4_TOOLCHAIN)/lib/libc++abi.a $(OO_PS4_TOOLCHAIN)/lib/libunwind.a $(OO_PS4_TOOLCHAIN)/lib/libpthread.a $(OO_PS4_TOOLCHAIN)/lib/libc.a
 	PS4_DYNAMIC_ALLOCATOR_DIR := $(CURDIR)/.orbis-dynamic-allocator
 	PS4_DYNAMIC_ALLOCATOR_NAMES := malloc.lo strdup.lo \
 		__errno_location.lo expand_heap.lo libc.lo madvise.lo mmap.lo \
@@ -285,8 +284,9 @@ else ifeq ($(platform), orbis-dynamic)
 	PS4_DYNAMIC_ALLOCATOR_OBJECTS := \
 		$(addprefix $(PS4_DYNAMIC_ALLOCATOR_DIR)/,$(PS4_DYNAMIC_ALLOCATOR_NAMES))
 	PS4_DYNAMIC_ALLOCATOR_STAMP := $(PS4_DYNAMIC_ALLOCATOR_DIR)/.ready
-	EXTRA_DEPS += $(PS4_DYNAMIC_ALLOCATOR_STAMP)
 	LIBS += $(PS4_DYNAMIC_ALLOCATOR_OBJECTS)
+	LIBS += -L$(OO_PS4_TOOLCHAIN)/lib $(OO_PS4_TOOLCHAIN)/lib/libc++.a $(OO_PS4_TOOLCHAIN)/lib/libc++abi.a $(OO_PS4_TOOLCHAIN)/lib/libunwind.a $(OO_PS4_TOOLCHAIN)/lib/libpthread.a $(OO_PS4_TOOLCHAIN)/lib/libc.a
+	EXTRA_DEPS += $(PS4_DYNAMIC_ALLOCATOR_STAMP)
 	PS4_DYNAMIC_STUB_DIR := $(CURDIR)/.orbis-dynamic-stubs
 	PS4_DYNAMIC_STUBS := $(PS4_DYNAMIC_STUB_DIR)/libkernel.so \
 		$(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so
