@@ -270,7 +270,7 @@ else ifeq ($(platform), orbis-dynamic)
 	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include/c++/v1
 	CXXFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
 	CXXFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
-	CXXFLAGS += -fno-rtti -fno-exceptions
+	CXXFLAGS += -fno-rtti
 	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
 	LDFLAGS += --script $(OO_PS4_TOOLCHAIN)/link.x --eh-frame-hdr
 	LDFLAGS += --version-script=$(VERSION_SCRIPT)
