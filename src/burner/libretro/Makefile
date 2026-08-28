@@ -73,7 +73,7 @@ endif
 # Unix
 ifneq (,$(findstring unix,$(platform)))
 	TARGET := $(TARGET_NAME)_libretro.so
-	fpic := -fPIC
+	fpic :=
 	SHARED := -shared -Wl,-no-undefined -Wl,--version-script=$(VERSION_SCRIPT)
 	ENDIANNESS_DEFINES := -DLSB_FIRST
 	LDFLAGS += -lpthread
@@ -265,11 +265,13 @@ else ifeq ($(platform), orbis-dynamic)
 	CFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
 	CFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
 	CFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
+	CFLAGS += -fPIC
 	CXXFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
 	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
 	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include/c++/v1
 	CXXFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
 	CXXFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
+	CXXFLAGS += -fPIC
 	CXXFLAGS += -fno-rtti
 	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
 	LDFLAGS += --script $(OO_PS4_TOOLCHAIN)/link.x --eh-frame-hdr
