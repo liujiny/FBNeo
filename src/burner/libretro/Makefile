@@ -259,12 +259,16 @@ else ifeq ($(platform), orbis-dynamic)
 	CC := clang
 	CXX := clang++
 	LD := ld.lld
-	PLATCFLAGS += --target=x86_64-pc-freebsd12-elf
-	PLATCFLAGS += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
-	PLATCFLAGS += -nostdinc -isysroot $(ORBISDEV)
-	PLATCFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
-	PLATCFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
-	PLATCFLAGS += -fPIC -fshort-wchar -ffunction-sections -fdata-sections
+	PLATFORM_DEFINES += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
+	fpic := -fPIC
+	CFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
+	CFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
+	CFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
+	CFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
+	CXXFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
+	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
+	CXXFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
+	CXXFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
 	CXXFLAGS += -fno-rtti -fno-exceptions
 	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
 	LDFLAGS += --script $(OO_PS4_TOOLCHAIN)/link.x --eh-frame-hdr
