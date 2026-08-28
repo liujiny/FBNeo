@@ -274,6 +274,7 @@ else ifeq ($(platform), orbis-dynamic)
 	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
 	LDFLAGS += --script $(OO_PS4_TOOLCHAIN)/link.x --eh-frame-hdr
 	LDFLAGS += --version-script=$(VERSION_SCRIPT)
+	LDFLAGS += --allow-multiple-definition
 	LIBS := $(filter-out -lm,$(LIBS))
 	LIBS += $(OO_PS4_TOOLCHAIN)/lib/crtlib.o
 	LIBS += -L$(OO_PS4_TOOLCHAIN)/lib $(OO_PS4_TOOLCHAIN)/lib/libc++.a $(OO_PS4_TOOLCHAIN)/lib/libc++abi.a $(OO_PS4_TOOLCHAIN)/lib/libunwind.a $(OO_PS4_TOOLCHAIN)/lib/libpthread.a $(OO_PS4_TOOLCHAIN)/lib/libc.a
