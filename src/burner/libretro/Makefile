@@ -247,6 +247,44 @@ else ifneq (,$(filter $(platform), ps3 psl1ght))
 	CXX = $(PS3DEV)/ppu/bin/ppu-$(COMMONLV)g++$(EXE_EXT)
 	AR = $(PS3DEV)/ppu/bin/ppu-$(COMMONLV)ar$(EXE_EXT)
 
+# Sony PlayStation 4 loadable libretro SELF (OrbisDev + OpenOrbis)
+else ifeq ($(platform), orbis-dynamic)
+	ifeq ($(strip $(ORBISDEV)),)
+		$(error "Please set ORBISDEV in your environment. export ORBISDEV=<path to>orbisdev")
+	endif
+	ifeq ($(strip $(OO_PS4_TOOLCHAIN)),)
+		$(error "Please set OO_PS4_TOOLCHAIN in your environment. export OO_PS4_TOOLCHAIN=<path to>OpenOrbis")
+	endif
+	TARGET := $(TARGET_NAME)_libretro.elf
+	CC := clang
+	CXX := clang++
+	LD := ld.lld
+	PLATCFLAGS += --target=x86_64-pc-freebsd12-elf
+	PLATCFLAGS += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
+	PLATCFLAGS += -isysroot $(ORBISDEV)
+	PLATCFLAGS += -fPIC -fshort-wchar -ffunction-sections -fdata-sections
+	CXXFLAGS += -fno-rtti -fno-exceptions
+	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
+	LDFLAGS += --script $(OO_PS4_TOOLCHAIN)/link.x --eh-frame-hdr
+	LDFLAGS += --version-script=$(VERSION_SCRIPT)
+	LIBS := $(filter-out -lm,$(LIBS))
+	LIBS += $(OO_PS4_TOOLCHAIN)/lib/crtlib.o
+	PS4_DYNAMIC_ALLOCATOR_DIR := $(CURDIR)/.orbis-dynamic-allocator
+	PS4_DYNAMIC_ALLOCATOR_NAMES := malloc.lo strdup.lo \
+		__errno_location.lo expand_heap.lo libc.lo madvise.lo mmap.lo \
+		mremap.lo munmap.lo __wait.lo
+	PS4_DYNAMIC_ALLOCATOR_OBJECTS := \
+		$(addprefix $(PS4_DYNAMIC_ALLOCATOR_DIR)/,$(PS4_DYNAMIC_ALLOCATOR_NAMES))
+	PS4_DYNAMIC_ALLOCATOR_STAMP := $(PS4_DYNAMIC_ALLOCATOR_DIR)/.ready
+	EXTRA_DEPS += $(PS4_DYNAMIC_ALLOCATOR_STAMP)
+	LIBS += $(PS4_DYNAMIC_ALLOCATOR_OBJECTS)
+	PS4_DYNAMIC_STUB_DIR := $(CURDIR)/.orbis-dynamic-stubs
+	PS4_DYNAMIC_STUBS := $(PS4_DYNAMIC_STUB_DIR)/libkernel.so \
+		$(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so
+	EXTRA_DEPS += $(PS4_DYNAMIC_STUBS)
+	LIBS += -L$(PS4_DYNAMIC_STUB_DIR) -lkernel -lSceLibcInternal
+	HAVE_RZLIB := 1
+
 # Vita
 else ifeq ($(platform), vita)
 	TARGET := $(TARGET_NAME)_libretro_$(platform).a
