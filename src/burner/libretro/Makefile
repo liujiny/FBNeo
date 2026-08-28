@@ -267,6 +267,7 @@ else ifeq ($(platform), orbis-dynamic)
 	CFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
 	CXXFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
 	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
+	CXXFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include/c++/v1
 	CXXFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
 	CXXFLAGS += -fshort-wchar -ffunction-sections -fdata-sections
 	CXXFLAGS += -fno-rtti -fno-exceptions
