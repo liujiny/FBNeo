@@ -124,7 +124,7 @@ ifneq (,$(findstring unix,$(platform)))
 # webOS (32/64-bit)
 else ifeq ($(platform), webos)
 	TARGET := $(TARGET_NAME)_libretro.so
-	fpic := -fPIC
+	fpic :=
 	SHARED := -shared -Wl,-no-undefined -Wl,--version-script=$(VERSION_SCRIPT)
 	ENDIANNESS_DEFINES := -DLSB_FIRST
 	LDFLAGS += -lpthread -ldl
@@ -260,7 +260,7 @@ else ifeq ($(platform), orbis-dynamic)
 	CXX := clang++
 	LD := ld.lld
 	PLATFORM_DEFINES += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
-	fpic := -fPIC
+	fpic :=
 	CFLAGS += --target=x86_64-pc-freebsd12-elf -nostdinc -isysroot $(ORBISDEV)
 	CFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
 	CFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
@@ -810,7 +810,7 @@ $(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so:
 	@ln -sf $(ORBISDEV)/usr/lib/libSceLibcInternal_stub.so $@
 endif
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(EXTRA_DEPS)
 ifeq ($(STATIC_LINKING), 1)
 ifeq ($(SPLIT_UP_LINK), 1)
 	$(AR) rcs $@ $(foreach OBJS,$(OBJS),$(NEWLINE) $(AR) q $@ $(OBJS))
