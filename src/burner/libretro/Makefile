@@ -261,7 +261,9 @@ else ifeq ($(platform), orbis-dynamic)
 	LD := ld.lld
 	PLATCFLAGS += --target=x86_64-pc-freebsd12-elf
 	PLATCFLAGS += -DORBIS -D__ORBIS__ -D__PS4__ -D_BSD_SOURCE
-	PLATCFLAGS += -isysroot $(ORBISDEV)
+	PLATCFLAGS += -nostdinc -isysroot $(ORBISDEV)
+	PLATCFLAGS += -isystem $(OO_PS4_TOOLCHAIN)/include
+	PLATCFLAGS += -isystem $(shell $(CC) -print-resource-dir)/include
 	PLATCFLAGS += -fPIC -fshort-wchar -ffunction-sections -fdata-sections
 	CXXFLAGS += -fno-rtti -fno-exceptions
 	LDFLAGS += -m elf_x86_64 -pie --export-dynamic
