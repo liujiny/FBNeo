@@ -774,7 +774,7 @@ else
 		CXXFLAGS += -MD
 	endif
 endif
-else
+else ifneq ($(platform),orbis-dynamic)
 	LD = $(CXX)
 endif
 
