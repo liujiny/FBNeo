@@ -73,7 +73,7 @@ endif
 # Unix
 ifneq (,$(findstring unix,$(platform)))
 	TARGET := $(TARGET_NAME)_libretro.so
-	fpic := -fPIC
+	fpic :=
 	SHARED := -shared -Wl,-no-undefined -Wl,--version-script=$(VERSION_SCRIPT)
 	ENDIANNESS_DEFINES := -DLSB_FIRST
 	LDFLAGS += -lpthread
@@ -794,6 +794,21 @@ $(MAIN_FBNEO_DIR)/cpu/mips3_intf.o: $(MAIN_FBNEO_DIR)/cpu/mips3_intf.cpp
 
 %.o: %.S
 	$(CC) $(CFLAGS) $(INCFLAGS) -c $< -o $@
+
+ifeq ($(platform),orbis-dynamic)
+$(PS4_DYNAMIC_ALLOCATOR_STAMP): $(OO_PS4_TOOLCHAIN)/lib/libc.a
+	@mkdir -p $(PS4_DYNAMIC_ALLOCATOR_DIR)
+	@cd $(PS4_DYNAMIC_ALLOCATOR_DIR) && $(AR) x $(OO_PS4_TOOLCHAIN)/lib/libc.a $(PS4_DYNAMIC_ALLOCATOR_NAMES)
+	@touch $@
+
+$(PS4_DYNAMIC_STUB_DIR)/libkernel.so:
+	@mkdir -p $(PS4_DYNAMIC_STUB_DIR)
+	@ln -sf $(ORBISDEV)/usr/lib/libkernel_stub.so $@
+
+$(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so:
+	@mkdir -p $(PS4_DYNAMIC_STUB_DIR)
+	@ln -sf $(ORBISDEV)/usr/lib/libSceLibcInternal_stub.so $@
+endif
 
 $(TARGET): $(OBJS)
 ifeq ($(STATIC_LINKING), 1)
