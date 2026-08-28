@@ -12,7 +12,11 @@
 
 #if !defined(_MSC_VER)
 #if defined(__cplusplus)
+#if defined(__ORBIS__)
+#include <stddef.h>
+#else
 #include <cstddef>
+#endif
 #else
 #include <stddef.h>
 #endif
