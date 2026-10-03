@@ -4,6 +4,10 @@
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 #include "render_worker.h"
 #include "salvia_fbneo_diagnostics.h"
+#if defined(__PS4__)
+#include <orbis/libkernel.h>
+#include <stdio.h>
+#endif
 
 static void epic12_thread_job(INT32, INT32, INT32);
 
@@ -29,6 +33,11 @@ struct epic12_thread {
 		diag_wait_rng=0x9e3779b9u;
 #endif
 		available = worker.init(epic12_thread_job, 1);
+#if defined(__PS4__)
+        char line[128];
+        snprintf(line,sizeof(line),"[PS4 CVWORKER] created=%u configured_cores=%d\n",available ? 1 : 0,nBurnRenderCores);
+        sceKernelDebugOutText(0,line);
+#endif
 	}
 
 	void notify_wait() {

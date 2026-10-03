@@ -8,6 +8,8 @@
 #include "serflash.h"
 #include "rtc9701.h"
 #include "ymz770.h"
+#include "cv1k_ps4_profile.h"
+extern INT32 nBurnRenderCores;
 
 #define SH3_CLOCK (12800000 * 8)
 
@@ -489,6 +491,7 @@ static void init_speedhack()
 
 static INT32 DrvInit()
 {
+	cvp_reset();
 	struct BurnRomInfo ri;
 	BurnDrvGetRomInfo(&ri, 0);
 	if (ri.nLen >= 0x400000) is_type_d = 1;
@@ -618,6 +621,7 @@ static INT32 DrvFrame()
 		hold_coin.checklow(1, DrvInputs[0], 1<<3, 2);
 	}
 
+	cvp_begin();
 	Sh3NewFrame();
 
 	INT32 nInterleave = 240;
@@ -632,11 +636,13 @@ static INT32 DrvFrame()
 	}
 
 	Sh3SetIRQLine(2, CPU_IRQSTATUS_HOLD);
+	cvp_phase(0);
 
 	if (pBurnSoundOut) {
 		ymz770_update(pBurnSoundOut, nBurnSoundLen);
 	}
 
+	cvp_phase(1);
 	nExtraCycles[0] = nCyclesDone[0] - nCyclesTotal[0];
 
 	Sh3Close();
@@ -647,9 +653,12 @@ static INT32 DrvFrame()
 		epic12_wait_blitterthread();
 	}
 
+	cvp_phase(2);
 	if (pBurnDraw) {
 		BurnDrvRedraw();
 	}
+	cvp_phase(3);
+	cvp_end(BurnDrvGetTextA(DRV_NAME), DrvDips[1], nBurnRenderCores);
 
 	return 0;
 }
