@@ -295,6 +295,10 @@ else ifeq ($(platform), orbis-dynamic)
 		$(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so
 	EXTRA_DEPS += $(PS4_DYNAMIC_STUBS)
 	LIBS += -L$(PS4_DYNAMIC_STUB_DIR) -lkernel -lSceLibcInternal
+	PS4_CREATE_FSELF := $(OO_PS4_TOOLCHAIN)/bin/linux/create-fself
+	PS4_CORE_OELF := fbneo_libretro.oelf
+	PS4_CORE_SELF := fbneo_libretro.self
+	PS4_CORE_PAID := 0x3800000000000011
 	HAVE_RZLIB := 1
 
 # Vita
@@ -813,6 +817,13 @@ $(PS4_DYNAMIC_STUB_DIR)/libkernel.so:
 $(PS4_DYNAMIC_STUB_DIR)/libSceLibcInternal.so:
 	@mkdir -p $(PS4_DYNAMIC_STUB_DIR)
 	@ln -sf $(ORBISDEV)/usr/lib/libSceLibcInternal_stub.so $@
+
+.PHONY: orbis-self
+orbis-self: $(TARGET) $(PS4_DYNAMIC_STUBS)
+	OO_PS4_TOOLCHAIN=$(OO_PS4_TOOLCHAIN) $(PS4_CREATE_FSELF) \
+		-in $(TARGET) --out $(PS4_CORE_OELF) --lib $(PS4_CORE_SELF) \
+		--libname fbneo_libretro \
+		--library-path $(PS4_DYNAMIC_STUB_DIR) --paid $(PS4_CORE_PAID)
 endif
 
 $(TARGET): $(OBJS) $(EXTRA_DEPS)
@@ -845,6 +856,10 @@ endif
 
 clean: clean-objs
 	rm -f $(TARGET)
+ifeq ($(platform),orbis-dynamic)
+	rm -f $(PS4_CORE_OELF) $(PS4_CORE_SELF)
+	rm -rf $(PS4_DYNAMIC_ALLOCATOR_DIR) $(PS4_DYNAMIC_STUB_DIR)
+endif
 	rm -f $(M68KMAKE_EXE)
 	rm -f $(PGM_SPRITE_CREATE_EXE)
 	rm -f $(CTVMAKE_EXE)
