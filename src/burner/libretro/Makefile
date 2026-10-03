@@ -279,7 +279,10 @@ else ifeq ($(platform), orbis-dynamic)
 	LDFLAGS += --version-script=$(VERSION_SCRIPT)
 	LDFLAGS += --allow-multiple-definition
 	LIBS := $(filter-out -lm,$(LIBS))
-	LIBS += $(OO_PS4_TOOLCHAIN)/lib/crtlib.o
+	PS4_RUNTIME_OBJECTS := $(CURDIR)/ps4_module.o $(CURDIR)/ps4_realloc.o
+	LIBS += $(PS4_RUNTIME_OBJECTS)
+	EXTRA_DEPS += $(PS4_RUNTIME_OBJECTS) $(CURDIR)/ps4_module.ld
+	LDFLAGS += --script $(CURDIR)/ps4_module.ld --wrap=realloc
 	PS4_DYNAMIC_ALLOCATOR_DIR := $(CURDIR)/.orbis-dynamic-allocator
 	PS4_DYNAMIC_ALLOCATOR_NAMES := malloc.lo strdup.lo \
 		__errno_location.lo expand_heap.lo libc.lo madvise.lo mmap.lo \
@@ -857,7 +860,7 @@ endif
 clean: clean-objs
 	rm -f $(TARGET)
 ifeq ($(platform),orbis-dynamic)
-	rm -f $(PS4_CORE_OELF) $(PS4_CORE_SELF)
+	rm -f $(PS4_CORE_OELF) $(PS4_CORE_SELF) $(PS4_RUNTIME_OBJECTS)
 	rm -rf $(PS4_DYNAMIC_ALLOCATOR_DIR) $(PS4_DYNAMIC_STUB_DIR)
 endif
 	rm -f $(M68KMAKE_EXE)
