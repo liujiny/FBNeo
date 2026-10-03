@@ -94,7 +94,7 @@ static int16_t input(unsigned port,unsigned device,unsigned,unsigned id) {
    int phase=frame%600;
    if(phase<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
    if(phase>=30 && phase<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
-   mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
+   if(frame%30<25) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
    if(frame%240<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_A;
    mask |= 1<<((frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
    return id==RETRO_DEVICE_ID_JOYPAD_MASK ? mask : (mask>>id)&1;
