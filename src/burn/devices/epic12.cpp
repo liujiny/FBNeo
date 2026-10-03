@@ -9,7 +9,7 @@ Redistributions may not be sold, nor may they be used in a commercial product or
 #include "burnint.h"
 #include "tiles_generic.h"
 #include "sh4_intf.h"
-#include "thready.h"
+#include "epic12_thread.h"
 #include "rectangle.h"
 #include <math.h> // floor()
 
@@ -77,6 +77,7 @@ static UINT8 epic12_device_colrtable_rev[0x20][0x40];
 static UINT8 epic12_device_colrtable_add[0x20][0x20];
 
 static UINT16 *pal16 = NULL; // palette lut for 16bpp video emulation
+static bool output_rgb565 = false;
 
 #include "epic12.h"
 
@@ -288,6 +289,11 @@ typedef const void (*epic12_device_blitfunction)(
 #include "epic12_blit7.inc"
 #include "epic12_blit8.inc"
 
+#if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST) || defined(EPIC12_BLIT_TEST)
+#include "epic12_fast_blit.h"
+#endif
+
+
 static UINT8 *dips; // pointer to cv1k's dips
 
 static void blitter_delay_callback(int)
@@ -385,6 +391,7 @@ void epic12_set_blitter_sleep_on_busy(INT32 busysleep_on)
 
 void epic12_reset()
 {
+	thready.notify_wait();
 	// cache table to avoid divides in blit code, also pre-clamped
 	int x,y;
 	for (y=0;y<0x40;y++)
@@ -408,6 +415,10 @@ void epic12_reset()
 			if (epic12_device_colrtable_add[x][y]>0x1f) epic12_device_colrtable_add[x][y] = 0x1f;
 		}
 	}
+
+#if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST) || defined(EPIC12_BLIT_TEST)
+	epic12_init_blend_tables();
+#endif
 
 	m_blitter_busy = 0;
 	m_gfx_addr = 0;
@@ -499,6 +510,7 @@ static void gfx_upload(UINT32 *addr)
 
 	dimx = (READ_NEXT_WORD(addr) & 0x1fff) + 1;
 	dimy = (READ_NEXT_WORD(addr) & 0x0fff) + 1;
+
 
 	//bprintf(0, _T("GFX COPY: DST %02X,%02X,%03X DIM %02X,%03X\n"), dst_p,dst_x_start,dst_y_start, dimx,dimy);
 
@@ -792,6 +804,14 @@ static void gfx_draw(UINT32 *addr)
 	// surprisingly frequent, need to verify if it produces a worthwhile speedup tho.
 	if ((s_mode==0 && s_alpha==0x1f) && (d_mode==4 && d_alpha==0x1f))
 		blend = 0;
+
+
+#if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST) || defined(EPIC12_BLIT_TEST)
+	if (blend && s_mode == 0 && d_mode == 0) {
+		epic12_draw_fixed(flipx, trans, draw_params);
+		return;
+	}
+#endif
 
 	if (tinted)
 	{
@@ -1090,8 +1110,16 @@ static void gfx_exec_write(UINT32 data)
 
 static void pal16_check_init()
 {
+	// RGB565 can be packed directly. A full 24-bit lookup table costs 32 MiB
+	// and is unnecessary for the Xbox 360 frontend's normal output format.
+	output_rgb565 = nBurnBpp == 2 && BurnHighCol(255, 0, 0, 0) == 0xf800
+		&& BurnHighCol(0, 255, 0, 0) == 0x07e0 && BurnHighCol(0, 0, 255, 0) == 0x001f
+		&& BurnHighCol(8, 4, 8, 0) == 0x0821;
+	if (output_rgb565) return;
+
 	if (nBurnBpp < 3 && !pal16) {
 		pal16 = (UINT16 *)BurnMalloc((1 << 24) * sizeof (UINT16));
+		if (!pal16) return;
 
 		for (INT32 i = 0; i < (1 << 24); i++) {
 			pal16[i] = BurnHighCol(i / 0x10000, (i / 0x100) & 0xff, i & 0xff, 0);
@@ -1119,7 +1147,12 @@ static void epic12_draw_screen16_24bpp()
 				for (INT32 x = 0; x < nScreenWidth; x++, dst += nBurnBpp)
 				{
 					sx = x - scrollx;
-					PutPix(dst, pal16[s0[sx & widthmask]&((1<<24)-1)]);
+					const UINT32 color = s0[sx & widthmask] & 0xffffff;
+					if (output_rgb565) {
+						PutPix(dst, ((color >> 8) & 0xf800) | ((color >> 5) & 0x07e0) | ((color >> 3) & 0x001f));
+					} else {
+						PutPix(dst, pal16 ? pal16[color] : BurnHighCol(color >> 16, (color >> 8) & 255, color & 255, 0));
+					}
 				}
 				break;
 			case 3: // 24bpp
@@ -1135,6 +1168,10 @@ static void epic12_draw_screen16_24bpp()
 
 void epic12_draw_screen(UINT8 &recalc_palette)
 {
+#if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+	// The frame must be complete even with the legacy "Before Exec" DIP.
+	thready.notify_wait();
+#endif
 	INT32 scrollx = -m_gfx_scroll_x;
 	INT32 scrolly = -m_gfx_scroll_y;
 
@@ -1253,6 +1290,7 @@ void epic12_blitter_write(UINT32 offset, UINT32 data)
 
 void epic12_scan(INT32 nAction, INT32 *pnMin)
 {
+	thready.notify_wait();
 	SCAN_VAR(m_gfx_addr);
 //	SCAN_VAR(m_gfx_addr_shadowcopy); // probably not needed!
 	SCAN_VAR(m_gfx_scroll_x);
@@ -1272,4 +1310,3 @@ void epic12_scan(INT32 nAction, INT32 *pnMin)
 	}
 	thready.scan();
 }
-
