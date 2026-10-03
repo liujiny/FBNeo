@@ -381,6 +381,11 @@ void epic12_set_blitterdelay_method(INT32 delay_method) // 0 = accurate, !0 = an
 
 void epic12_set_blitter_clipping_margin(INT32 c_margin_on) // ??? not sure.
 {
+#if defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+	// PS5 r21: an identical write still races with the ordered worker.
+	if (EP1C_CLIP_MARGIN == (c_margin_on ? 32 : 0)) return;
+	thready.notify_wait();
+#endif
 	EP1C_CLIP_MARGIN = (c_margin_on) ? 32 : 0;
 }
 

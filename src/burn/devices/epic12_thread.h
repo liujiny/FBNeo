@@ -18,6 +18,7 @@ struct epic12_thread {
 #endif
 
 	void init(void (*callback)()) {
+		exit(); // allow safe reinitialization, matching PS5 r21
 		our_callback = callback;
 		startup_frame = 0;
 		enabled = true;
@@ -31,7 +32,7 @@ struct epic12_thread {
 	}
 
 	void notify_wait() {
-		if (!pending) { worker.finish(); return; }
+		if (!pending) return;
 #if defined(_XBOX) && SALVIA_FBNEO_DIAGNOSTICS
 		++diag_wait_calls;
 		unsigned x=diag_wait_rng;
@@ -64,12 +65,13 @@ struct epic12_thread {
 	}
 
 	void notify() {
+		notify_wait(); // ordered submissions, including synchronous fallback
 		if (startup_frame > 0) {
 			startup_frame--;
 			our_callback();
 		} else if (available && enabled) {
-			worker.start(0, 0);
-			pending = true;
+			pending = worker.start(0, 0);
+			if (!pending) our_callback();
 #if defined(_XBOX) && SALVIA_FBNEO_DIAGNOSTICS
 			++diag_jobs;
 #endif

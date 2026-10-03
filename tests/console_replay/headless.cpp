@@ -21,7 +21,7 @@ static std::vector<unsigned char> last_video;
 static unsigned last_w,last_h;
 static size_t last_pitch;
 static double callback_seconds;
-static bool playing;
+static bool playing, late_input;
 static int renderCores=2;
 static bool optionsChanged=false;
 static double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -87,6 +87,18 @@ static void poll() {}
 static int16_t input(unsigned port,unsigned device,unsigned,unsigned id) {
  if(!playing || port || device!=RETRO_DEVICE_JOYPAD) return 0;
  unsigned mask=0;
+ if(late_input) {
+   // CV1000 may ignore credits during the initial RAM test. Retry after
+   // boot, with shooting and periodic bombs to exercise blended sprites.
+   if(frame<600) return 0;
+   int phase=frame%600;
+   if(phase<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
+   if(phase>=30 && phase<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
+   mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
+   if(frame%240<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_A;
+   mask |= 1<<((frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
+   return id==RETRO_DEVICE_ID_JOYPAD_MASK ? mask : (mask>>id)&1;
+ }
  if(frame<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
  if(frame>=30 && frame<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
  if(frame>=70) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
@@ -103,6 +115,7 @@ static void writefile(const char *path,const void *p,size_t n) {
 }
 int main(int argc,char **argv) {
  if(argc<7) {fprintf(stderr,"core rom output_dir frames depth avmask [state_in|-] [play] [hash]\n");return 2;}
+ late_input=getenv("FBNEO_REPLAY_LATE_INPUT")!=nullptr;
  renderCores=argc>13?atoi(argv[13]):2;
  if(renderCores<1 || renderCores>3) return 2;
  savedir=argv[3];std::filesystem::create_directories(savedir);

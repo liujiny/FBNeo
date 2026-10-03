@@ -366,6 +366,10 @@ static void speedhack_set(UINT32 ram, UINT32 pc)
 
 static INT32 DrvDoReset()
 {
+#if defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+	// PS5 r21: drain before mutating any RAM, CPU or device state.
+	epic12_wait_blitterthread();
+#endif
 	memset (AllRam, 0, RamEnd - AllRam);
 
 	Sh3Open(0);
@@ -534,6 +538,10 @@ static INT32 DrvInit()
 
 static INT32 DrvExit()
 {
+#if defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+	// PS5 r21: drain before mutating any RAM, CPU or device state.
+	epic12_wait_blitterthread();
+#endif
 	Sh3Exit();
 
 	epic12_exit();
@@ -648,6 +656,10 @@ static INT32 DrvFrame()
 
 static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 {
+#if defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+	// PS5 r21: drain before mutating any RAM, CPU or device state.
+	epic12_wait_blitterthread();
+#endif
 	if (pnMin) {
 		*pnMin = 0x029704;
 	}
