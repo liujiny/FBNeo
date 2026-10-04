@@ -40,6 +40,8 @@ Redistributions may not be sold, nor may they be used in a commercial product or
 
 #define COMBINE_DATA(varptr)		(*(varptr) = (*(varptr) & ~mem_mask) | (data & mem_mask))
 
+static void init_opcode_dispatch(void);
+
 static int c_md2;
 static int c_md1;
 static int c_md0;
@@ -879,6 +881,8 @@ void Sh3Init(INT32 num, INT32 hz, char md0, char md1, char md2, char md3, char m
 	}
 
 	cave_blitter_delay.init(0 | 0x100, cave_blitter_delay_func); // "| 0x100" for timer logging
+
+	init_opcode_dispatch();
 
 	sh4_set_cave_blitter_delay_func(NULL);
 
@@ -4448,182 +4452,190 @@ static inline void execute_one_4000(const UINT16 opcode)
 }
 
 
-static inline void execute_one(const UINT16 opcode)
+// Decode once at CPU initialization; entries depend only on the opcode.
+// Groups 0 and 4 keep their existing low-byte decoder.
+typedef void (*Sh3OpcodeHandler)(const UINT16 opcode);
+static Sh3OpcodeHandler opcode_dispatch[0x10000];
+
+static Sh3OpcodeHandler decode_opcode(const UINT16 opcode)
 {
 	switch(opcode & 0xf000)
 	{
 		case 0x0000:
-			execute_one_0000(opcode);
-			break;
+			return execute_one_0000;
 
 		case 0x1000:
-			MOVLS4(opcode);
-			break;
+			return MOVLS4;
 
 		case 0x2000:
 			switch(opcode & 0x0f)
 			{
-				case 0x00:  MOVBS(opcode); break;
-				case 0x01:  MOVWS(opcode); break;
-				case 0x02:  MOVLS(opcode); break;
-				case 0x03:  NOP(opcode); break;
-				case 0x04:  MOVBM(opcode); break;
-				case 0x05:  MOVWM(opcode); break;
-				case 0x06:  MOVLM(opcode); break;
-				case 0x07:  DIV0S(opcode); break;
-				case 0x08:  TST(opcode); break;
-				case 0x09:  AND(opcode); break;
-				case 0x0a:  XOR(opcode); break;
-				case 0x0b:  OR(opcode); break;
-				case 0x0c:  CMPSTR(opcode); break;
-				case 0x0d:  XTRCT(opcode); break;
-				case 0x0e:  MULU(opcode); break;
-				case 0x0f:  MULS(opcode); break;
+				case 0x00:  return MOVBS;
+				case 0x01:  return MOVWS;
+				case 0x02:  return MOVLS;
+				case 0x03:  return NOP;
+				case 0x04:  return MOVBM;
+				case 0x05:  return MOVWM;
+				case 0x06:  return MOVLM;
+				case 0x07:  return DIV0S;
+				case 0x08:  return TST;
+				case 0x09:  return AND;
+				case 0x0a:  return XOR;
+				case 0x0b:  return OR;
+				case 0x0c:  return CMPSTR;
+				case 0x0d:  return XTRCT;
+				case 0x0e:  return MULU;
+				case 0x0f:  return MULS;
 			}
 			break;
 
 		case 0x3000:
 			switch(opcode & 0x0f)
 			{
-				case 0x00:  CMPEQ(opcode); break;
-				case 0x01:  NOP(opcode); break;
-				case 0x02:  CMPHS(opcode); break;
-				case 0x03:  CMPGE(opcode); break;
-				case 0x04:  DIV1(opcode); break;
-				case 0x05:  DMULU(opcode); break;
-				case 0x06:  CMPHI(opcode); break;
-				case 0x07:  CMPGT(opcode); break;
-				case 0x08:  SUB(opcode); break;
-				case 0x09:  NOP(opcode); break;
-				case 0x0a:  SUBC(opcode); break;
-				case 0x0b:  SUBV(opcode); break;
-				case 0x0c:  ADD(opcode); break;
-				case 0x0d:  DMULS(opcode); break;
-				case 0x0e:  ADDC(opcode); break;
-				case 0x0f:  ADDV(opcode); break;
+				case 0x00:  return CMPEQ;
+				case 0x01:  return NOP;
+				case 0x02:  return CMPHS;
+				case 0x03:  return CMPGE;
+				case 0x04:  return DIV1;
+				case 0x05:  return DMULU;
+				case 0x06:  return CMPHI;
+				case 0x07:  return CMPGT;
+				case 0x08:  return SUB;
+				case 0x09:  return NOP;
+				case 0x0a:  return SUBC;
+				case 0x0b:  return SUBV;
+				case 0x0c:  return ADD;
+				case 0x0d:  return DMULS;
+				case 0x0e:  return ADDC;
+				case 0x0f:  return ADDV;
 			}
 			break;
 
 		case 0x4000:
-			execute_one_4000(opcode);
-			break;
+			return execute_one_4000;
 
 		case 0x5000:
-			MOVLL4(opcode);
-			break;
+			return MOVLL4;
 
 		case 0x6000:
 			switch(opcode & 0x0f)
 			{
-				case 0x00:  MOVBL(opcode); break;
-				case 0x01:  MOVWL(opcode); break;
-				case 0x02:  MOVLL(opcode); break;
-				case 0x03:  MOV(opcode); break;
-				case 0x04:  MOVBP(opcode); break;
-				case 0x05:  MOVWP(opcode); break;
-				case 0x06:  MOVLP(opcode); break;
-				case 0x07:  NOT(opcode); break;
-				case 0x08:  SWAPB(opcode); break;
-				case 0x09:  SWAPW(opcode); break;
-				case 0x0a:  NEGC(opcode); break;
-				case 0x0b:  NEG(opcode); break;
-				case 0x0c:  EXTUB(opcode); break;
-				case 0x0d:  EXTUW(opcode); break;
-				case 0x0e:  EXTSB(opcode); break;
-				case 0x0f:  EXTSW(opcode); break;
+				case 0x00:  return MOVBL;
+				case 0x01:  return MOVWL;
+				case 0x02:  return MOVLL;
+				case 0x03:  return MOV;
+				case 0x04:  return MOVBP;
+				case 0x05:  return MOVWP;
+				case 0x06:  return MOVLP;
+				case 0x07:  return NOT;
+				case 0x08:  return SWAPB;
+				case 0x09:  return SWAPW;
+				case 0x0a:  return NEGC;
+				case 0x0b:  return NEG;
+				case 0x0c:  return EXTUB;
+				case 0x0d:  return EXTUW;
+				case 0x0e:  return EXTSB;
+				case 0x0f:  return EXTSW;
 			}
 			break;
 
 		case 0x7000:
-			ADDI(opcode);
-			break;
+			return ADDI;
 
 		case 0x8000:
 			switch((opcode >> 8) & 0x0f)
 			{
-				case 0x00:  MOVBS4(opcode); break;
-				case 0x01:  MOVWS4(opcode); break;
-				case 0x02:  NOP(opcode); break;
-				case 0x03:  NOP(opcode); break;
-				case 0x04:  MOVBL4(opcode); break;
-				case 0x05:  MOVWL4(opcode); break;
-				case 0x06:  NOP(opcode); break;
-				case 0x07:  NOP(opcode); break;
-				case 0x08:  CMPIM(opcode); break;
-				case 0x09:  BT(opcode); break;
-				case 0x0a:  NOP(opcode); break;
-				case 0x0b:  BF(opcode); break;
-				case 0x0c:  NOP(opcode); break;
-				case 0x0d:  BTS(opcode); break;
-				case 0x0e:  NOP(opcode); break;
-				case 0x0f:  BFS(opcode); break;
+				case 0x00:  return MOVBS4;
+				case 0x01:  return MOVWS4;
+				case 0x02:  return NOP;
+				case 0x03:  return NOP;
+				case 0x04:  return MOVBL4;
+				case 0x05:  return MOVWL4;
+				case 0x06:  return NOP;
+				case 0x07:  return NOP;
+				case 0x08:  return CMPIM;
+				case 0x09:  return BT;
+				case 0x0a:  return NOP;
+				case 0x0b:  return BF;
+				case 0x0c:  return NOP;
+				case 0x0d:  return BTS;
+				case 0x0e:  return NOP;
+				case 0x0f:  return BFS;
 			}
 			break;
 
 		case 0x9000:
-			MOVWI(opcode);
-			break;
+			return MOVWI;
 
 		case 0xa000:
-			BRA(opcode);
-			break;
+			return BRA;
 
 		case 0xb000:
-			BSR(opcode);
-			break;
+			return BSR;
 
 		case 0xc000:
 			switch((opcode >> 8) & 0x0f)
 			{
-				case 0x00:  MOVBSG(opcode); break;
-				case 0x01:  MOVWSG(opcode); break;
-				case 0x02:  MOVLSG(opcode); break;
-				case 0x03:  TRAPA(opcode); break;
-				case 0x04:  MOVBLG(opcode); break;
-				case 0x05:  MOVWLG(opcode); break;
-				case 0x06:  MOVLLG(opcode); break;
-				case 0x07:  MOVA(opcode); break;
-				case 0x08:  TSTI(opcode); break;
-				case 0x09:  ANDI(opcode); break;
-				case 0x0a:  XORI(opcode); break;
-				case 0x0b:  ORI(opcode); break;
-				case 0x0c:  TSTM(opcode); break;
-				case 0x0d:  ANDM(opcode); break;
-				case 0x0e:  XORM(opcode); break;
-				case 0x0f:  ORM(opcode); break;
+				case 0x00:  return MOVBSG;
+				case 0x01:  return MOVWSG;
+				case 0x02:  return MOVLSG;
+				case 0x03:  return TRAPA;
+				case 0x04:  return MOVBLG;
+				case 0x05:  return MOVWLG;
+				case 0x06:  return MOVLLG;
+				case 0x07:  return MOVA;
+				case 0x08:  return TSTI;
+				case 0x09:  return ANDI;
+				case 0x0a:  return XORI;
+				case 0x0b:  return ORI;
+				case 0x0c:  return TSTM;
+				case 0x0d:  return ANDM;
+				case 0x0e:  return XORM;
+				case 0x0f:  return ORM;
 			}
 			break;
 
 		case 0xd000:
-			MOVLI(opcode);
-			break;
+			return MOVLI;
 
 		case 0xe000:
-			MOVI(opcode);
-			break;
+			return MOVI;
 
 		case 0xf000:
 			switch(opcode & 0x0f)
 			{
-				case 0x00:  FADD(opcode); break;
-				case 0x01:  FSUB(opcode); break;
-				case 0x02:  FMUL(opcode); break;
-				case 0x03:  FDIV(opcode); break;
-				case 0x04:  FCMP_EQ(opcode); break;
-				case 0x05:  FCMP_GT(opcode); break;
-				case 0x06:  FMOVS0FR(opcode); break;
-				case 0x07:  FMOVFRS0(opcode); break;
-				case 0x08:  FMOVMRFR(opcode); break;
-				case 0x09:  FMOVMRIFR(opcode); break;
-				case 0x0a:  FMOVFRMR(opcode); break;
-				case 0x0b:  FMOVFRMDR(opcode); break;
-				case 0x0c:  FMOVFR(opcode); break;
-				case 0x0d:  op1111_0x13(opcode); break;
-				case 0x0e:  FMAC(opcode); break;
-				case 0x0f:  dbreak(opcode); break;
+				case 0x00:  return FADD;
+				case 0x01:  return FSUB;
+				case 0x02:  return FMUL;
+				case 0x03:  return FDIV;
+				case 0x04:  return FCMP_EQ;
+				case 0x05:  return FCMP_GT;
+				case 0x06:  return FMOVS0FR;
+				case 0x07:  return FMOVFRS0;
+				case 0x08:  return FMOVMRFR;
+				case 0x09:  return FMOVMRIFR;
+				case 0x0a:  return FMOVFRMR;
+				case 0x0b:  return FMOVFRMDR;
+				case 0x0c:  return FMOVFR;
+				case 0x0d:  return op1111_0x13;
+				case 0x0e:  return FMAC;
+				case 0x0f:  return dbreak;
 			}
 			break;
 	}
+	return TODO;
+}
+
+static void init_opcode_dispatch(void)
+{
+	for (UINT32 opcode = 0; opcode < 0x10000; opcode++) {
+		opcode_dispatch[opcode] = decode_opcode((UINT16)opcode);
+	}
+}
+
+static inline void execute_one(const UINT16 opcode)
+{
+	opcode_dispatch[opcode](opcode);
 }
 
 	static inline void sh4_check_pending_irq(/*const char *message*/) // look for highest priority active exception and handle it
