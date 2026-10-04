@@ -4,6 +4,7 @@
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 #include "render_worker.h"
 #include "salvia_fbneo_diagnostics.h"
+#include "epic12_ps4_profile.h"
 #if defined(__PS4__)
 #include <orbis/libkernel.h>
 #include <stdio.h>
@@ -23,6 +24,7 @@ struct epic12_thread {
 
 	void init(void (*callback)()) {
 		exit(); // allow safe reinitialization, matching PS5 r21
+		cvw_reset();
 		our_callback = callback;
 		startup_frame = 0;
 		enabled = true;
@@ -94,7 +96,9 @@ static epic12_thread thready;
 
 static void epic12_thread_job(INT32, INT32, INT32)
 {
+	cvw_begin();
 	thready.our_callback();
+	cvw_end();
 }
 #else
 #include "thready.h"
