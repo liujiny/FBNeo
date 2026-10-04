@@ -369,6 +369,9 @@ struct Compiler {
 	}
 };
 
+// Compilation is a cache-miss path. Keep its large compiler/emitter frame
+// out of the native-entry hot path (including negative-cache hits).
+__attribute__((noinline))
 static void compile(Block &b, UINT32 pc, const UINT16 *source) {
 	if(used+SLOT_BYTES>CODE_BYTES) { memset(blocks,0,SLOTS*sizeof(Block)); used=0; }
 	b.entry=NULL; b.pc=pc; b.source=source; b.words=b.checked=b.extra_cycles=0;
