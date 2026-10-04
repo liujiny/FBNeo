@@ -5,9 +5,9 @@
 #define FBNEO_EPIC12_CPU_ALPHA_H
 
 class Epic12CpuAlpha {
-	enum { PAGE_SIZE = 32, SETS = 64, WAYS = 2, QUERIES = 4 };
+	enum { ALPHA_PAGE_SIDE = 32, SETS = 64, WAYS = 2, QUERIES = 4 };
 	struct Page {
-		UINT32 tag, rows[PAGE_SIZE], groups[PAGE_SIZE / 8];
+		UINT32 tag, rows[ALPHA_PAGE_SIDE], groups[ALPHA_PAGE_SIDE / 8];
 		UINT32 keys[QUERIES], answers[QUERIES];
 		unsigned next_query;
 	};
@@ -41,17 +41,17 @@ class Epic12CpuAlpha {
 		page.tag = tag;
 		page.next_query = 0;
 		for (unsigned i = 0; i < QUERIES; ++i) page.keys[i] = ~0U;
-		const UINT32 *source = vram + (tag >> 8) * PAGE_SIZE * 8192
-			+ (tag & 255) * PAGE_SIZE;
-		for (int y = 0; y < PAGE_SIZE; ++y) {
+		const UINT32 *source = vram + (tag >> 8) * ALPHA_PAGE_SIDE * 8192
+			+ (tag & 255) * ALPHA_PAGE_SIDE;
+		for (int y = 0; y < ALPHA_PAGE_SIDE; ++y) {
 			UINT32 bits = 0;
 #if defined(__SSE2__) && defined(__x86_64__)
-			for (int x = 0; x < PAGE_SIZE; x += 4) {
+			for (int x = 0; x < ALPHA_PAGE_SIDE; x += 4) {
 				const __m128i pen = _mm_loadu_si128((const __m128i *)(source + x));
 				bits |= (UINT32)_mm_movemask_ps(_mm_castsi128_ps(_mm_slli_epi32(pen, 2))) << x;
 			}
 #else
-			for (int x = 0; x < PAGE_SIZE; ++x) bits |= ((source[x] >> 29) & 1U) << x;
+			for (int x = 0; x < ALPHA_PAGE_SIDE; ++x) bits |= ((source[x] >> 29) & 1U) << x;
 #endif
 			page.rows[y] = bits;
 			if (!(y & 7)) page.groups[y >> 3] = bits;
@@ -71,12 +71,12 @@ class Epic12CpuAlpha {
 		if (i == QUERIES) {
 			const UINT32 selected = mask(x0, x1);
 			UINT32 columns = 0;
-			int top = PAGE_SIZE, bottom = 0;
+			int top = ALPHA_PAGE_SIDE, bottom = 0;
 			for (int y = y0; y <= y1; ++y) {
 				if (!(page.groups[y >> 3] & selected)) { y |= 7; continue; }
 				const UINT32 bits = page.rows[y] & selected;
 				if (!bits) continue;
-				if (top == PAGE_SIZE) top = y;
+				if (top == ALPHA_PAGE_SIDE) top = y;
 				bottom = y;
 				columns |= bits;
 			}
@@ -119,7 +119,7 @@ public:
 		bool found = false;
 		for (int py = r.min_y >> 5; py <= r.max_y >> 5; ++py)
 			for (int px = r.min_x >> 5; px <= r.max_x >> 5; ++px) {
-				const int ox = px * PAGE_SIZE, oy = py * PAGE_SIZE;
+				const int ox = px * ALPHA_PAGE_SIDE, oy = py * ALPHA_PAGE_SIDE;
 				const int x0 = r.min_x > ox ? r.min_x - ox : 0;
 				const int y0 = r.min_y > oy ? r.min_y - oy : 0;
 				const int x1 = r.max_x < ox + 31 ? r.max_x - ox : 31;

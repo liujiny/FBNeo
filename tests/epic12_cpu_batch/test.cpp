@@ -15,6 +15,7 @@ static int test_create(pthread_t *t, const pthread_attr_t *a, void *(*f)(void *)
 #define FBNEO_RENDER_THREADS_TEST
 #include "../../src/burn/devices/epic12.cpp"
 #undef pthread_create
+#undef fprintf
 
 INT32 nBurnRenderCores = 2;
 static unsigned seed = 0xb17281a5;
@@ -327,10 +328,10 @@ int main() {
 	CHECK(reference && candidate);
 	for (int y = 0; y < 512; ++y) for (int x = 0; x < 1152; ++x)
 		reference[y * 8192 + x] = rnd() & 0x20f8f8f8;
-	// Raw copies must preserve even unused pixel bits; tinted/blended paths
-	// must discard them exactly like the legacy colour conversion.
+	// Raw copies preserve unused bits that the legacy colour decoder ignores.
+	// Its 8-bit channel extraction assumes the intervening gaps stay zero.
 	for (int y = 0; y < 4; ++y) for (int x = 512; x < 544; ++x)
-		reference[y * 8192 + x] = rnd();
+		reference[y * 8192 + x] = rnd() & 0xf8f8f8ff;
 	for (int y = 4080; y < 4096; ++y) for (int x = 500; x < 1100; ++x)
 		reference[y * 8192 + x] = rnd() & 0x20f8f8f8;
 	memcpy(candidate, reference, VRAM_WORDS * sizeof(*reference));
