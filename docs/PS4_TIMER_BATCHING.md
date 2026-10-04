@@ -43,3 +43,25 @@ a later single connection was explicitly requested by the user and succeeded.
 The filename V-klog-20261004-122859.log contains U/RAPS10018 gameplay, not V
 hardware validation. A TCP receive timeout does not prove the PS4 is alive.
 Do not turn capture errors into repeated automatic reconnect attempts.
+
+## Latest user stop (2026-10-04)
+
+The user said "先不编译" after the timer-only PS4 build had already completed.
+Do not start any further compiler, linker or packager until that instruction
+is lifted. No V PKG has been generated; U is still the installable baseline.
+The timer-only binary is archived in project
+`testbuild/v-logs/binaries/timer-only-before-stop`, with its actual build commit
+and hashes in `testbuild/v-logs/CURRENT_STATE.json`.
+
+A subsequent source change adds bounded core/CPU/final-wait peaks and counts
+of core frames exceeding 16,667/20,000 microseconds. It uses the existing clock
+reads, still emits only one report per 300 frames, and stops after 24 reports.
+Synthetic ASan/UBSan checks for peaks, thresholds, reset and syscall count
+passed before the stop. This diagnostic change is NOT in the PS4 binary.
+Core duration excludes frontend/pacing time and is not an audio underrun count.
+The reason for adding it is that 300-frame averages can conceal short stalls.
+
+The new klog connection did capture U/RAPS10018 DDPDFK windows. The console
+power-off association with klog remains unproven. Capture was reconnected once
+only after the user's explicit "你现在重连 我运行游戏" instruction; no automatic
+reconnect loop is authorized by that one-time request.
