@@ -30,7 +30,7 @@ int main(){
   {{draw_sprite_f1_ti0_tr0_s0_d0,draw_sprite_f1_ti1_tr0_s0_d0},
    {draw_sprite_f1_ti0_tr1_s0_d0,draw_sprite_f1_ti1_tr1_s0_d0}}
  };
- for(int i=0;i<5000;i++){
+ for(int i=0;i<6024;i++){
   int w=1+rnd()%128,h=1+rnd()%32,dx=64+rnd()%128,dy=64+rnd()%32;
   int sx=256+rnd()%128,sy=32+rnd()%128,fx=i&1,fy=(i>>1)&1,tr=(i>>2)&1,ti=(i>>3)&1;
   int sa=rnd()%32,da=i%3?31:rnd()%32;
@@ -40,6 +40,14 @@ int main(){
   if(i%13==0){dx-=128;dy-=96;}
   rectangle clip;clip.set(32,256,16,128);
   clr_t tint;tint.r=ti?rnd()%64:32;tint.g=ti?rnd()%64:32;tint.b=ti?rnd()%64:32;
+  // Exercise every identity-tint combination, flips, transparency and
+  // destination-alpha class; adjacent source alpha/tint must use the LUT.
+  if(i<1024){
+   ti=1;tint.r=31+((i>>3)&1);tint.g=31+((i>>4)&1);tint.b=31+((i>>5)&1);
+   sa=(i&64)?30:31;
+   const int destination_alpha[4]={0,15,30,31};da=destination_alpha[(i>>7)&3];
+   if(i&512)tint.r=33;
+  }
   for(int y=0;y<h;y++)for(int x=0;x<w;x++){
    unsigned pos=((sy+y)&4095)*8192+((sx+x)&8191);ref[pos]=got[pos]=pixel();
   }
@@ -60,6 +68,6 @@ int main(){
     return 5;
    }
  }
- puts("PASS 5000 image cases: tint, transparency, clipping, flips, source wrap, overlapping VRAM and delay");
+ puts("PASS 6024 image cases: identity/adjacent tint-alpha, transparency, clipping, flips, source wrap, overlapping VRAM and delay");
  free(ref);free(got);return 0;
 }

@@ -24,7 +24,7 @@ static inline UINT32 epic12_packed_add(UINT32 s, UINT32 d)
 	return (sum | (carry - (carry >> 5))) & 0x00f8f8f8;
 }
 
-template<bool FlipX, bool Transparent, bool FullDestination>
+template<bool FlipX, bool Transparent, bool FullDestination, bool IdentitySource>
 static void epic12_blend_fixed(BLIT_PARAMS)
 {
 	if (FlipX) src_x += dimx - 1;
@@ -51,8 +51,10 @@ static void epic12_blend_fixed(BLIT_PARAMS)
 		for (int x = x0; x < x1; x++, out++, in += FlipX ? -1 : 1) {
 			UINT32 pen = *in;
 			if (Transparent && !(pen & 0x20000000)) continue;
-			UINT32 s = (red[(pen >> 19) & 31] << 19) |
-			           (green[(pen >> 11) & 31] << 11) | (blue[(pen >> 3) & 31] << 3);
+			UINT32 s;
+			if (IdentitySource) s = pen & 0x00f8f8f8;
+			else s = (red[(pen >> 19) & 31] << 19) |
+			         (green[(pen >> 11) & 31] << 11) | (blue[(pen >> 3) & 31] << 3);
 			UINT32 d = *out;
 			if (FullDestination) d &= 0x00f8f8f8;
 			else d = (dest[(d >> 19) & 31] << 19) |
@@ -64,7 +66,19 @@ static void epic12_blend_fixed(BLIT_PARAMS)
 
 static void epic12_draw_fixed(int flipx, int transparent, BLIT_PARAMS)
 {
-#define EPIC12_FIXED_CALL(f,t,d) epic12_blend_fixed<f,t,d>(clip,gfx,src_x,src_y,dst_x_start,dst_y_start,dimx,dimy,flipy,s_alpha,d_alpha,tint_clr)
+	// For every 5-bit component c, min(31, c*tint/31) == c at
+	// tint 31 and 32. With full source alpha the original two rounding
+	// stages are therefore an identity, including saturated white.
+	// Select once per sprite; the pixel loop needs no colour table reads
+	// for this common untinted additive blend. Other values keep the LUT.
+	const bool identity_source = s_alpha == 31 &&
+		(tint_clr->r == 31 || tint_clr->r == 32) &&
+		(tint_clr->g == 31 || tint_clr->g == 32) &&
+		(tint_clr->b == 31 || tint_clr->b == 32);
+#define EPIC12_FIXED_CALL(f,t,d) do { \
+	if (identity_source) epic12_blend_fixed<f,t,d,true>(clip,gfx,src_x,src_y,dst_x_start,dst_y_start,dimx,dimy,flipy,s_alpha,d_alpha,tint_clr); \
+	else epic12_blend_fixed<f,t,d,false>(clip,gfx,src_x,src_y,dst_x_start,dst_y_start,dimx,dimy,flipy,s_alpha,d_alpha,tint_clr); \
+} while (0)
 	if (d_alpha == 31) {
 		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,true); else EPIC12_FIXED_CALL(true,false,true); }
 		else { if (transparent) EPIC12_FIXED_CALL(false,true,true); else EPIC12_FIXED_CALL(false,false,true); }
