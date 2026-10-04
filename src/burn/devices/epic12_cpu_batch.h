@@ -5,6 +5,7 @@
 #define FBNEO_EPIC12_CPU_BATCH_H
 
 #include "epic12_cpu_alpha.h"
+#include "epic12_blend_vector.h"
 
 static void epic12_cpu_job(INT32 first, INT32 last, INT32 index);
 
@@ -12,7 +13,7 @@ class Epic12CpuBatch {
 	enum { CAPACITY = 256, MIN_PIXELS_PER_LANE = 16384 };
 	struct Command {
 		int sx, sy, x, y, w, h;
-		bool flipx, flipy, transparent, raw, identity;
+		bool flipx, flipy, transparent, raw, identity, source_dest;
 		UINT8 sa, da;
 		clr_t tint;
 	};
@@ -54,6 +55,7 @@ class Epic12CpuBatch {
 		}
 		return false;
 	}
+	template<int DestinationMode>
 	void draw_command(const Command &c, int first, int last) {
 		const int y0 = first > c.y ? first - c.y : 0;
 		const int y1 = last < c.y + c.h ? last - c.y : c.h;
@@ -62,6 +64,9 @@ class Epic12CpuBatch {
 		const UINT8 *green = epic12_source_scale[c.tint.g][c.sa];
 		const UINT8 *blue = epic12_source_scale[c.tint.b][c.sa];
 		const UINT8 *dest = epic12_device_colrtable[c.da];
+	#if defined(__SSE2__) && defined(__x86_64__)
+		const Epic12BlendVector vector(c.tint, c.sa, c.da);
+	#endif
 		for (int y = y0; y < y1; ++y) {
 			UINT32 *out = vram + (c.y + y) * 8192 + c.x;
 			const UINT32 *in = vram + (c.sy + (c.flipy ? c.h - 1 - y : y)) * 8192 + c.sx;
@@ -73,7 +78,7 @@ class Epic12CpuBatch {
 #if defined(__SSE2__) && defined(__x86_64__)
 			// Whole-batch dependency checks guarantee disjoint source/destination
 			// storage, including flipped rows and reads made by other helpers.
-			if (c.raw || (c.identity && (c.da == 0 || c.da == 31))) {
+			if (DestinationMode == 0 && (c.raw || (c.identity && (c.da == 0 || c.da == 31)))) {
 				const __m128i colour = _mm_set1_epi32(0x00f8f8f8);
 				const __m128i marker = _mm_set1_epi32(0x20000000);
 				for (; x + 4 <= c.w; x += 4) {
@@ -95,12 +100,41 @@ class Epic12CpuBatch {
 						result = _mm_or_si128(_mm_and_si128(valid, result), _mm_andnot_si128(valid, old));
 					_mm_storeu_si128((__m128i *)(out + x), result);
 				}
+			} else {
+				for (; x + 4 <= c.w; x += 4) {
+					__m128i pen = _mm_loadu_si128((const __m128i *)(in + (c.flipx ? c.w - x - 4 : x)));
+					if (c.flipx) pen = _mm_shuffle_epi32(pen, _MM_SHUFFLE(0, 1, 2, 3));
+					const __m128i valid = _mm_srai_epi32(_mm_slli_epi32(pen, 2), 31);
+					const int visible = _mm_movemask_epi8(valid);
+					if (c.transparent && !visible) continue;
+					__m128i old = _mm_setzero_si128();
+					if (c.da || (c.transparent && visible != 0xffff))
+						old = _mm_loadu_si128((const __m128i *)(out + x));
+					__m128i result = vector.blend<0, DestinationMode>(pen, old);
+					if (c.transparent && visible != 0xffff)
+						result = _mm_or_si128(_mm_and_si128(valid, result), _mm_andnot_si128(valid, old));
+					_mm_storeu_si128((__m128i *)(out + x), result);
+				}
 			}
 #endif
 			for (; x < c.w; ++x) {
 				const UINT32 pen = in[c.flipx ? c.w - 1 - x : x];
 				if (c.transparent && !(pen & 0x20000000)) continue;
 				if (c.raw) { out[x] = pen; continue; }
+				if (DestinationMode == 1) {
+					const UINT32 old = out[x];
+					const unsigned r = (pen >> 19) & 31, g = (pen >> 11) & 31, b = (pen >> 3) & 31;
+					// Destination factor uses the tinted source before source-alpha
+					// multiplication, with both rounding stages kept separate.
+					const unsigned tr = epic12_source_scale[c.tint.r][31][r];
+					const unsigned tg = epic12_source_scale[c.tint.g][31][g];
+					const unsigned tb = epic12_source_scale[c.tint.b][31][b];
+					out[x] = (epic12_device_colrtable_add[red[r]][epic12_device_colrtable[tr][(old >> 19) & 31]] << 19)
+						| (epic12_device_colrtable_add[green[g]][epic12_device_colrtable[tg][(old >> 11) & 31]] << 11)
+						| (epic12_device_colrtable_add[blue[b]][epic12_device_colrtable[tb][(old >> 3) & 31]] << 3)
+						| (pen & 0x20000000);
+					continue;
+				}
 				UINT32 s = c.identity ? pen & 0x00f8f8f8
 					: (red[(pen >> 19) & 31] << 19) | (green[(pen >> 11) & 31] << 11) | (blue[(pen >> 3) & 31] << 3);
 				if (c.da) {
@@ -145,7 +179,10 @@ public:
 	void invalidate_all() { flush(); alpha.clear(); }
 	void before_write(const rectangle &r) { flush(); alpha.invalidate(r); }
 	void draw_rows(int first, int last) {
-		for (unsigned i = 0; i < count; ++i) draw_command(commands[i], first, last);
+		for (unsigned i = 0; i < count; ++i) {
+			if (commands[i].source_dest) draw_command<1>(commands[i], first, last);
+			else draw_command<0>(commands[i], first, last);
+		}
 	}
 	void flush() {
 		if (!count) return;
@@ -182,7 +219,19 @@ public:
 	}
 
 	bool submit(int flipx, int transparent, int blend, int smode, int dmode, BLIT_PARAMS) {
-		if (!vram || gfx != vram || (blend && (smode != 0 || dmode != 0))) return false;
+		if (!vram || gfx != vram) return false;
+		UINT8 source_alpha = s_alpha, destination_alpha = d_alpha;
+		// Constant factors share the fixed-alpha kernel. Normalize only local
+		// arguments; rejected modes retain the original rasterizer semantics.
+		if (blend) {
+			if (smode == 3 || smode == 7) source_alpha = 31;
+			else if (smode == 4) source_alpha = 31 - s_alpha;
+			else if (smode != 0) return false;
+			if (dmode == 3 || dmode == 7) destination_alpha = 31;
+			else if (dmode == 4) destination_alpha = 31 - d_alpha;
+			else if (dmode == 1) destination_alpha = 31; // force destination load
+			else if (dmode != 0) return false;
+		}
 		// Preserve the original horizontal-wrap rejection before clipping.
 		if (src_x + dimx > 8192) return true;
 		const int x0 = dst_x_start < clip->min_x ? clip->min_x - dst_x_start : 0;
@@ -196,8 +245,9 @@ public:
 		c.x = dst_x_start + x0; c.y = dst_y_start + y0; c.w = x1 - x0; c.h = y1 - y0;
 		if (c.x < 0 || c.y < 0 || c.x + c.w > 8192 || c.y + c.h > 4096 || c.sy + c.h > 4096) return false;
 		c.flipx = !!flipx; c.flipy = !!flipy; c.transparent = !!transparent;
+		c.source_dest = blend && dmode == 1;
 		c.raw = !blend && tint_clr->r == 32 && tint_clr->g == 32 && tint_clr->b == 32;
-		c.sa = blend ? s_alpha : 31; c.da = blend ? d_alpha : 0; c.tint = *tint_clr;
+		c.sa = blend ? source_alpha : 31; c.da = blend ? destination_alpha : 0; c.tint = *tint_clr;
 		c.identity = c.sa == 31 && (c.tint.r == 31 || c.tint.r == 32)
 			&& (c.tint.g == 31 || c.tint.g == 32) && (c.tint.b == 31 || c.tint.b == 32);
 		rectangle src = source_rect(c), dst = destination_rect(c);

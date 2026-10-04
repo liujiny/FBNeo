@@ -233,6 +233,39 @@ static void small_simd_edges() {
 	compare();
 }
 
+// Exercise constant/source-factor encodings, partial alphas, tint saturation,
+// SIMD tails and transparent/flipped pixels against the original rasterizers.
+static void constant_blend_edges() {
+	const int modes[] = { 0, 3, 4, 7, 1 };
+	for (int lanes = 1; lanes <= 3; ++lanes) {
+		configure(lanes);
+		for (int sm = 0; sm < 4; ++sm) for (int dm = 0; dm < 5; ++dm)
+		for (int w = 1; w <= 19; ++w) for (int flags = 0; flags < 8; ++flags) {
+			Draw d; d.blend = 1; d.sm = modes[sm]; d.dm = modes[dm];
+			d.sa = rnd() % 32; d.da = rnd() % 32;
+			d.w = w; d.h = 3; d.sx += w & 3; d.x += w & 3;
+			d.fx = flags & 1; d.fy = (flags >> 1) & 1; d.tr = (flags >> 2) & 1;
+			d.tint.r = rnd() % 64; d.tint.g = rnd() % 64; d.tint.b = rnd() % 64;
+			draw(d);
+		}
+		compare();
+		// Enough partial-alpha overdraw to exercise all requested lanes, with
+		// mixed constant/source factors and subsequent RAW/WAR barriers.
+		for (int i = 0; i < 96; ++i) {
+			Draw d; d.w = 128; d.h = 128; d.blend = 1; d.tr = 1;
+			d.sm = modes[i % 4]; d.dm = modes[i % 5];
+			d.sa = 7 + i % 19; d.da = 9 + i % 17;
+			d.tint.r = 23; d.tint.g = 41; d.tint.b = 17;
+			d.fx = i & 1; d.fy = (i >> 1) & 1; draw(d);
+		}
+		Draw d; d.blend = 1; d.sm = 4; d.dm = 1; d.sa = 11;
+		d.sx = 0; d.x = 256; draw(d); // reads pending output
+		d.sx = 768; d.x = 256; draw(d);
+		d.sx = 1024; d.x = 768; draw(d); // writes pending source
+		compare();
+	}
+}
+
 static void command_lists() {
 	// Exercise parser flushes, clip changes and uploads between cached draws.
 	const UINT16 endings[3] = { 0x0000, 0xf000, 0x3000 };
@@ -375,7 +408,8 @@ int main() {
 	memcpy(candidate, reference, VRAM_WORDS * sizeof(*reference));
 	m_bitmaps = candidate; epic12_cpu_batch.init(candidate);
 	uploads(); puts("PASS upload expansion, wrapping, payload copy and command timing");
-	small_simd_edges(); writes_and_dependencies(); random_lists();
+	small_simd_edges();
+	constant_blend_edges(); writes_and_dependencies(); random_lists();
 	capacity_and_row_balance(); command_lists(); sparse_dependencies(); alpha_invalidations();
 	puts("PASS legacy-rasterizer differential: pixels, delay, dependencies and parser barriers");
 	worker_lifetimes(); epic12_cpu_batch.exit();
