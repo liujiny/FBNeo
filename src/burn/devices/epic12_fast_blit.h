@@ -24,7 +24,13 @@ static inline UINT32 epic12_packed_add(UINT32 s, UINT32 d)
 	return (sum | (carry - (carry >> 5))) & 0x00f8f8f8;
 }
 
-template<bool FlipX, bool Transparent, bool FullDestination, bool IdentitySource>
+enum {
+	EPIC12_DEST_SCALED,
+	EPIC12_DEST_FULL,
+	EPIC12_DEST_ZERO
+};
+
+template<bool FlipX, bool Transparent, int DestinationMode, bool IdentitySource>
 static void epic12_blend_fixed(BLIT_PARAMS)
 {
 	if (FlipX) src_x += dimx - 1;
@@ -55,11 +61,18 @@ static void epic12_blend_fixed(BLIT_PARAMS)
 			if (IdentitySource) s = pen & 0x00f8f8f8;
 			else s = (red[(pen >> 19) & 31] << 19) |
 			         (green[(pen >> 11) & 31] << 11) | (blue[(pen >> 3) & 31] << 3);
-			UINT32 d = *out;
-			if (FullDestination) d &= 0x00f8f8f8;
-			else d = (dest[(d >> 19) & 31] << 19) |
-			         (dest[(d >> 11) & 31] << 11) | (dest[(d >> 3) & 31] << 3);
-			*out = epic12_packed_add(s, d) | (pen & 0x20000000);
+			if (DestinationMode == EPIC12_DEST_ZERO) {
+				// alpha 0 contributes no destination colour. Keep the
+				// source read/write order for overlapping VRAM and retain
+				// the source transparency bit, even when s is black.
+				*out = s | (pen & 0x20000000);
+			} else {
+				UINT32 d = *out;
+				if (DestinationMode == EPIC12_DEST_FULL) d &= 0x00f8f8f8;
+				else d = (dest[(d >> 19) & 31] << 19) |
+				         (dest[(d >> 11) & 31] << 11) | (dest[(d >> 3) & 31] << 3);
+				*out = epic12_packed_add(s, d) | (pen & 0x20000000);
+			}
 		}
 	}
 }
@@ -79,12 +92,15 @@ static void epic12_draw_fixed(int flipx, int transparent, BLIT_PARAMS)
 	if (identity_source) epic12_blend_fixed<f,t,d,true>(clip,gfx,src_x,src_y,dst_x_start,dst_y_start,dimx,dimy,flipy,s_alpha,d_alpha,tint_clr); \
 	else epic12_blend_fixed<f,t,d,false>(clip,gfx,src_x,src_y,dst_x_start,dst_y_start,dimx,dimy,flipy,s_alpha,d_alpha,tint_clr); \
 } while (0)
-	if (d_alpha == 31) {
-		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,true); else EPIC12_FIXED_CALL(true,false,true); }
-		else { if (transparent) EPIC12_FIXED_CALL(false,true,true); else EPIC12_FIXED_CALL(false,false,true); }
+	if (d_alpha == 0) {
+		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,EPIC12_DEST_ZERO); else EPIC12_FIXED_CALL(true,false,EPIC12_DEST_ZERO); }
+		else { if (transparent) EPIC12_FIXED_CALL(false,true,EPIC12_DEST_ZERO); else EPIC12_FIXED_CALL(false,false,EPIC12_DEST_ZERO); }
+	} else if (d_alpha == 31) {
+		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,EPIC12_DEST_FULL); else EPIC12_FIXED_CALL(true,false,EPIC12_DEST_FULL); }
+		else { if (transparent) EPIC12_FIXED_CALL(false,true,EPIC12_DEST_FULL); else EPIC12_FIXED_CALL(false,false,EPIC12_DEST_FULL); }
 	} else {
-		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,false); else EPIC12_FIXED_CALL(true,false,false); }
-		else { if (transparent) EPIC12_FIXED_CALL(false,true,false); else EPIC12_FIXED_CALL(false,false,false); }
+		if (flipx) { if (transparent) EPIC12_FIXED_CALL(true,true,EPIC12_DEST_SCALED); else EPIC12_FIXED_CALL(true,false,EPIC12_DEST_SCALED); }
+		else { if (transparent) EPIC12_FIXED_CALL(false,true,EPIC12_DEST_SCALED); else EPIC12_FIXED_CALL(false,false,EPIC12_DEST_SCALED); }
 	}
 #undef EPIC12_FIXED_CALL
 }

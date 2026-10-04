@@ -1,9 +1,11 @@
-# Post-T2 performance candidates — stop before compilation
+# Post-T2 performance candidates — U validation
 
 Date: 2026-10-04. Branch: `ps4-sh3-full-dispatch-20261004`.
 Build baseline: T2, `4758ee7df64c5ea4d5f9a3ca5c729e253778f809`.
-The user requested another optimization round and asked about dense bullet
-scenes, while retaining the explicit stop before compilation.
+The user initially requested stopping before compilation, then explicitly
+authorized compilation and a PKG after the third optimization round. The
+source-only checks below preceded that authorization. Build/replay evidence
+for U is recorded separately in project `testbuild/u-logs`.
 
 ## Hardware evidence
 
@@ -38,6 +40,11 @@ and its klog snapshot. No ROMs or raw logs belong in this repository.
    Taking `pen & 0x00f8f8f8` replaces three component table reads and repacking.
    Selection occurs once per sprite. All other source tint/alpha combinations
    retain the existing LUT path.
+3. Destination alpha 0 gets a dedicated fixed-blend specialization. Its
+   destination contribution is always zero, so the loop omits the destination
+   pixel load, three destination component LUT reads and packed saturated add.
+   Source pixels still read and write in original order, including overlapping
+   VRAM. A black source still writes its transparency bit when appropriate.
 
 The second change is useful only for draws meeting that condition. The klog
 does not contain their frequency; no claim is made that every bullet uses it.
@@ -47,8 +54,8 @@ Changing those copies to the same operation would not be a new optimization.
 The blend loop retains source/destination alias ordering, transparent-pixel
 handling, clipping, flips, source-wrap rejection and emulated blitter delay.
 No command reordering, eight-way worker split, frameskip, bullet reduction,
-CPU downclock, or audio change is included. The specialization doubles the
-fixed-blend template variants from eight to sixteen; compiled code size and
+CPU downclock, or audio change is included. The specializations increase the
+fixed-blend template variants from eight to twenty-four; compiled code size and
 instruction-cache effects remain to be measured.
 
 ## Checks completed without compilation
@@ -62,7 +69,8 @@ instruction-cache effects remain to be measured.
   including unrelated pixel bits. This is algebra, not C++ execution.
 - Added 1,024 explicit image differential cases (6,024 total) for identity and
   adjacent tint/alpha boundaries, flips, transparency and destination alpha.
-  The C++ image test has NOT been compiled or run for these changes.
+  These cases include destination alpha 0. The source-only stage did not run
+  the C++ renderer; subsequent compiled results belong to the U report.
 
 Read-only checks can be repeated with:
 
@@ -72,7 +80,7 @@ rtk proxy python3 -B tests/epic12_blit/static_identity.py
 rtk proxy git diff --check
 ```
 
-## Resume only after the user authorizes compilation
+## Build/replay acceptance criteria
 
 Keep the two changes separable for baseline/SH3-only/combined comparisons.
 First run the compiled ASan/UBSan opcode fixture and EPIC12 differential test;
@@ -85,5 +93,6 @@ Only then use the PS4 toolchain and package with the immutable S frontend
 SELF, independent Title ID and required `pkg_validate` checks. Audit object
 targets to avoid the previous Linux/FreeBSD object mix. The current `.elf`,
 `.oelf` and `.self` in the production tree still belong to T2, not this source.
-No new binary or package has been generated. Packaging rules and the fixed
-output directory remain in the project handoff and console optimization skill.
+Do not label an existing binary as U until it is rebuilt and archived with
+matching source hashes. Packaging rules and the fixed output directory remain
+in the project handoff and console optimization skill.
