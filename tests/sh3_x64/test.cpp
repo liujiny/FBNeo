@@ -77,11 +77,46 @@ static void alu_to_io_boundaries() {
  MemMapR[3]=MemMapW[3]=memory;
 }
 
+static void literal_cases() {
+ // MOV.W/MOV.L PC-relative loads can cross a fetch-page boundary. The
+ // address is constant, but neither the read mapping nor its data is frozen.
+ const UINT16 loads[]={0x9120,0xd120};
+ const UINT32 starts[]={0xffc0,0xa000ffc0};
+ const int budgets[]={8,9,16,32};
+ const unsigned long long before=Sh3X64::native_blocks;
+ unsigned cases=0;
+ for(unsigned op=0;op<2;++op) for(unsigned pc=0;pc<2;++pc) {
+  Sh3Reset();
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(int i=0;i<32;++i)((UINT16*)memory)[0xffc0/2+i]=0x7201;
+  ((UINT16*)memory)[0xffd0/2]=loads[op];
+  for(int edit=0;edit<4;++edit) for(unsigned budget=0;budget<4;++budget) {
+   for(unsigned i=0;i<256;++i) {
+    write_page[i]=(UINT8)(i*19+edit*41+budget);
+    memory[i]=(UINT8)(i*7+edit*23+budget);
+   }
+   MemMapR[1]=(edit&1)?write_page:memory;
+   m_pc=starts[pc];m_sr=0;
+   compare(budgets[budget],true);++cases;
+  }
+ }
+ // The same PC-relative MOV.L must also leave native code before invoking
+ // a handler, whose callback observes the exact PC and elapsed cycles.
+ Sh3MapHandler(1,0x10000,0x1ffff,MAP_READ);
+ Sh3SetReadLongHandler(1,io_read);
+ m_pc=0xffc0;m_sr=0;compare(32,true);++cases;
+ MemMapR[1]=memory;
+ CHECK(Sh3X64::native_blocks>before);
+ printf("PASS live PC-relative data/map/page/alias/device cases=%u\n",cases);
+}
+
 int main() {
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
  // Mirror a bounded backing store across the guest map, so arbitrary branch
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
+ literal_cases();
+ if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
   0x3128,0x2129,0x212a,0x212b,0x612c,0x612d,0x612e,0x612f,0x6118,
   0x6119,0x4110,0x4111,0x4115,0x4118,0x4119,0x411c,0x412d,

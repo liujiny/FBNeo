@@ -223,9 +223,12 @@ struct Compiler {
 		const int width=h==MOVBL || h==MOVBP || h==MOVBL0 || h==MOVBL4?1:
 			h==MOVWL || h==MOVWP || h==MOVWI || h==MOVWL0 || h==MOVWL4?2:4;
 		const int n=small_displaced?0:(opcode>>8)&15, m=(opcode>>4)&15;
+		// PC-relative addresses are known while emitting, but the mapped data
+		// remains live: reload the read-map entry and its value on every run.
+		const UINT32 literal=h==MOVWI?pc+ops*2+4+(opcode&255)*2:((pc+ops*2+4)&~3)+(opcode&255)*4;
+		if(pc_relative && literal>=0xe0000000) return false;
 		int s=-1;
-		if(pc_relative) imm(13,h==MOVWI?pc+ops*2+4+(opcode&255)*2:((pc+ops*2+4)&~3)+(opcode&255)*4);
-		else {
+		if(!pc_relative) {
 			s=reg(m);rr(0x89,13,s);
 			if(indexed) rr(0x01,13,reg(0));
 			if(displaced) immediate(0,13,(opcode&15)*width);
@@ -233,16 +236,20 @@ struct Compiler {
 		unsigned exits[3], count=0;
 		// Special/internal addresses and unaligned operands use the original
 		// handler. No mapped host pointer is embedded in a generated block.
-		immediate(7,13,0xe0000000); exits[count++]=jump(3);
-		if(width>1) {rex(0,13);byte(0xf7);byte(0xc5);word(width-1);exits[count++]=jump(5);}
-		rr(0x89,0,13);immediate(4,0,AM);shift(5,0,SH3_SHIFT);
+		if(pc_relative) imm(0,(literal&AM)>>SH3_SHIFT);
+		else {
+			immediate(7,13,0xe0000000); exits[count++]=jump(3);
+			if(width>1) {rex(0,13);byte(0xf7);byte(0xc5);word(width-1);exits[count++]=jump(5);}
+			rr(0x89,0,13);immediate(4,0,AM);shift(5,0,SH3_SHIFT);
+		}
 		byte(0x49);byte(0x8b);byte(0x1c);byte(0xc4); // rbx=[r12+rax*8]
 		byte(0x48);byte(0x83);byte(0xfb);byte(SH3_MAXHANDLER);exits[count++]=jump(2);
 		unsigned ready=jump(-1);
 		for(unsigned i=0;i<count;++i) patch(exits[i]);
 		finish(); // precise partial-block exit before the faulting guest op
 		patch(ready);
-		rr(0x89,0,13);immediate(4,0,SH3_PAGEM);
+		if(pc_relative) imm(0,literal&SH3_PAGEM);
+		else {rr(0x89,0,13);immediate(4,0,SH3_PAGEM);}
 		if(width==1) immediate(6,0,1); // guest byte addressing is word-swapped
 		int d=reg(n,n==m && !pc_relative);
 		rex(d,3);
@@ -251,7 +258,8 @@ struct Compiler {
 		if(width==4) shift(0,d,16);
 		changed(d);
 		if(post && n!=m) {immediate(0,s,width);changed(s);}
-		if(!post) {
+		if(pc_relative) set_global(&m_ea,literal);
+		else if(!post) {
 			byte(0x48);byte(0xb8);uintptr_t ea=(uintptr_t)&m_ea;
 			word((UINT32)ea);word((UINT32)(ea>>32));
 			byte(0x44);byte(0x89);byte(0x28); // [m_ea]=r13d
