@@ -281,10 +281,31 @@ struct Compiler {
 		}
 		return true;
 	}
+	bool decrement_test(UINT16 opcode) {
+#if BUSY_LOOP_HACKS
+		// DT always peeks through the read map at the post-fetch PPC. Do not
+		// use the fetch-map snapshot: it can differ after remapping/state load.
+		// Handler reads and the original DT/BF -2 busy-loop optimization must
+		// run in the interpreter, before any part of this DT is committed.
+		const UINT32 next = (pc + ops*2 + 2) & AM;
+		imm(0, next >> SH3_SHIFT);
+		byte(0x49); byte(0x8b); byte(0x1c); byte(0xc4); // rbx=read_map[rax]
+		byte(0x48); byte(0x83); byte(0xfb); byte(SH3_MAXHANDLER);
+		unsigned handler = jump(2);
+		byte(0x66); byte(0x81); byte(0xbb); word(next & SH3_PAGEM);
+		byte(0xfd); byte(0x8b); // cmp word [rbx+offset],0x8bfd
+		unsigned busy = jump(4), ready = jump(-1);
+		patch(handler); patch(busy); finish(); patch(ready);
+#endif
+		int d = reg((opcode >> 8) & 15);
+		immediate(5, d, 1); condition(4); changed(d);
+		return true;
+	}
 	bool op(UINT16 opcode) {
 		for(int i=0;i<REGS;++i) locked[i]=false;
 		const Sh3OpcodeHandler h=opcode_dispatch[opcode];
 		if(h==BT || h==BF || h==BTS || h==BFS) return branch(opcode,h);
+		if(h==DT) return decrement_test(opcode);
 		if(h==MOVBS || h==MOVWS || h==MOVLS || h==MOVBM || h==MOVWM || h==MOVLM || h==MOVBS0 || h==MOVWS0 || h==MOVLS0 || h==MOVBS4 || h==MOVWS4 || h==MOVLS4)
 			return store(opcode,h);
 		if(h==MOVBL || h==MOVWL || h==MOVLL || h==MOVBP || h==MOVWP || h==MOVLP || h==MOVWI || h==MOVLI || h==MOVBL0 || h==MOVWL0 || h==MOVLL0 || h==MOVBL4 || h==MOVWL4 || h==MOVLL4)

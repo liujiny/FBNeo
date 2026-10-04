@@ -168,6 +168,55 @@ static void runtime_option_cases() {
  printf("PASS public dispatch on/off/failure and state/edit checks; budgets=%u\n",cases);
 }
 
+
+static UINT16 dt_peek_value;
+static UINT16 dt_read(UINT32 address) {
+ observations.push_back(address); observations.push_back(Sh3GetPC(-1));
+ observations.push_back(Sh3TotalCycles()); observations.push_back(m_r[2]);
+ observations.push_back(m_sr); Sh3BurnCycles(1); return dt_peek_value;
+}
+static void dt_cases() {
+ public_dispatch=true;Sh3SetJitEnabled(1);Sh3X64::release();
+ Sh3Reset();m_pc=0x100;m_sr=0;m_r[2]=2;
+ for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+ ((UINT16*)memory)[0x110/2]=0x4210;
+ const unsigned long long before=Sh3X64::native_ops;
+ compare(32,true);CHECK(Sh3X64::native_ops-before==32);
+ const UINT32 starts[]={0x100,0xffee,0xa0000100};
+ const UINT32 values[]={0,1,2,3,7,0x80000000,0xffffffff};
+ const int budgets[]={0,1,7,8,9,10,16,31,32,33,40,64};
+ Sh3SetReadWordHandler(1,dt_read);
+ unsigned cases=0;
+ for(unsigned pc=0;pc<3;++pc) for(unsigned val=0;val<7;++val)
+ for(int map=0;map<3;++map) for(int busy=0;busy<2;++busy)
+ for(int slice=0;slice<2;++slice) for(unsigned budget=0;budget<12;++budget) {
+  MemMapR[0]=MemMapR[1]=memory;Sh3Reset();
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=((UINT16*)write_page)[i]=0x0009;
+  m_pc=starts[pc];m_sr=T;m_r[2]=values[val];m_r[1]=0;
+  for(unsigned i=0;i<8;++i)((UINT16*)memory)[((starts[pc]+i*2)&0xffff)/2]=0x7101;
+  const UINT32 dt=starts[pc]+16,next=(dt+2)&AM;
+  ((UINT16*)memory)[(dt&0xffff)/2]=0x4210;
+  dt_peek_value=busy?0x8bfd:0x0009;
+  if(map==0)((UINT16*)memory)[(next&0xffff)/2]=dt_peek_value;
+  if(map==1) {MemMapR[next>>SH3_SHIFT]=write_page;((UINT16*)write_page)[(next&0xffff)/2]=dt_peek_value;}
+  if(map==2) MemMapR[next>>SH3_SHIFT]=(UINT8*)1;
+  compare(budgets[budget],!!slice);++cases;
+ }
+ MemMapR[0]=MemMapR[1]=memory;
+ // DT in a taken delayed branch observes the branch target via m_ppc.
+ for(int branch=0;branch<2;++branch) for(int busy=0;busy<2;++busy)
+ for(unsigned budget=0;budget<12;++budget) {
+  Sh3Reset();m_pc=0x100;m_sr=branch?T:0;m_r[2]=7;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  ((UINT16*)memory)[0x100/2]=branch?0x8d08:0x8f08;
+  ((UINT16*)memory)[0x102/2]=0x4210;
+  ((UINT16*)memory)[0x114/2]=busy?0x8bfd:0x0009;
+  compare(budgets[budget],true);++cases;
+ }
+ public_dispatch=false;
+ printf("PASS DT native/busy/READ-vs-FETCH/map/page/alias/delay cases=%u\n",cases);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -177,6 +226,7 @@ int main() {
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
  runtime_option_cases();
+ dt_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
