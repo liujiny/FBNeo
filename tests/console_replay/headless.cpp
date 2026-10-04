@@ -22,6 +22,7 @@ static unsigned last_w,last_h;
 static size_t last_pitch;
 static double callback_seconds;
 static bool playing, late_input;
+static int input_frame_offset;
 static int renderCores=2;
 static bool optionsChanged=false;
 static double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -86,23 +87,24 @@ static void audio_sample(int16_t,int16_t) {}
 static void poll() {}
 static int16_t input(unsigned port,unsigned device,unsigned,unsigned id) {
  if(!playing || port || device!=RETRO_DEVICE_JOYPAD) return 0;
+ const int input_frame=frame+input_frame_offset;
  unsigned mask=0;
  if(late_input) {
    // CV1000 may ignore credits during the initial RAM test. Retry after
    // boot, with shooting and periodic bombs to exercise blended sprites.
-   if(frame<600) return 0;
-   int phase=frame%600;
+   if(input_frame<600) return 0;
+   int phase=input_frame%600;
    if(phase<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
    if(phase>=30 && phase<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
-   if(frame%30<25) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
-   if(frame%240<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_A;
-   mask |= 1<<((frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
+   if(input_frame%30<25) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
+   if(input_frame%240<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_A;
+   mask |= 1<<((input_frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
    return id==RETRO_DEVICE_ID_JOYPAD_MASK ? mask : (mask>>id)&1;
  }
- if(frame<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
- if(frame>=30 && frame<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
- if(frame>=70) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
- if(frame>=160) mask |= 1<<((frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
+ if(input_frame<5) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_SELECT;
+ if(input_frame>=30 && input_frame<35) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_START;
+ if(input_frame>=70) mask |= 1<<RETRO_DEVICE_ID_JOYPAD_B;
+ if(input_frame>=160) mask |= 1<<((input_frame/120)%2 ? RETRO_DEVICE_ID_JOYPAD_LEFT:RETRO_DEVICE_ID_JOYPAD_RIGHT);
  if(id==RETRO_DEVICE_ID_JOYPAD_MASK) return mask;
  return (mask>>id)&1;
 }
@@ -116,6 +118,8 @@ static void writefile(const char *path,const void *p,size_t n) {
 int main(int argc,char **argv) {
  if(argc<7) {fprintf(stderr,"core rom output_dir frames depth avmask [state_in|-] [play] [hash]\n");return 2;}
  late_input=getenv("FBNEO_REPLAY_LATE_INPUT")!=nullptr;
+ input_frame_offset=getenv("FBNEO_REPLAY_INPUT_FRAME_OFFSET")?atoi(getenv("FBNEO_REPLAY_INPUT_FRAME_OFFSET")):0;
+ if(input_frame_offset<0) return 2;
  renderCores=argc>13?atoi(argv[13]):2;
  if(renderCores<1 || renderCores>3) return 2;
  savedir=argv[3];std::filesystem::create_directories(savedir);
@@ -148,10 +152,12 @@ int main(int argc,char **argv) {
    double start=now();callback_seconds=0;retro_run();double elapsed=now()-start-callback_seconds;core_time+=elapsed;
    if(timings) fprintf(timings,"%d,%.9f\n",frame,elapsed*1000);
    if(hashes) fprintf(hashes,"%d %016llx %016llx\n",frame,(unsigned long long)video_hash,(unsigned long long)audio_hash);
-   if(getenv("SALVIA_SNAPSHOTS") && frame%1000==999) {
+   if((getenv("SALVIA_SNAPSHOTS") || getenv("FBNEO_REPLAY_VIDEO_SNAPSHOTS")) && frame%1000==999) {
      std::string checkpointdir=savedir+"/checkpoint-"+std::to_string(frame+1);std::filesystem::create_directories(checkpointdir);
-     std::vector<unsigned char> snapshot(retro_serialize_size());
-     if(retro_serialize(snapshot.data(),snapshot.size())) writefile((checkpointdir+"/end.state").c_str(),snapshot.data(),snapshot.size());
+     if(getenv("SALVIA_SNAPSHOTS")) {
+       std::vector<unsigned char> snapshot(retro_serialize_size());
+       if(retro_serialize(snapshot.data(),snapshot.size())) writefile((checkpointdir+"/end.state").c_str(),snapshot.data(),snapshot.size());
+     }
      if(!last_video.empty()) {
        writefile((checkpointdir+"/frame.raw").c_str(),last_video.data(),last_video.size());
        FILE *m=fopen((checkpointdir+"/frame.meta").c_str(),"w");fprintf(m,"%u %u %zu %u\n",last_w,last_h,last_pitch,pixel_format);fclose(m);
