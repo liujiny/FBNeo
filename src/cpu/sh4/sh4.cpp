@@ -285,6 +285,11 @@ struct sh4_dtimer
 	void run_prescale(INT32 cyc) {
 		prescale_counter += cyc * m_ratio;
 		while (prescale_counter >= timer_prescaler) {
+			// A stopped timer has no callbacks, but its divider keeps running.
+			if (!running && timer_prescaler != 0) {
+				prescale_counter %= (UINT32)timer_prescaler;
+				return;
+			}
 			prescale_counter -= timer_prescaler;
 
 			// note: we can't optimize this, f.ex:
