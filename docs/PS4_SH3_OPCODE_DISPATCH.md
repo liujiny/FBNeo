@@ -1,5 +1,27 @@
 # SH3 opcode dispatch experiment (PS4 T)
 
+## Post-T2 source candidate (2026-10-04; not compiled)
+
+The `ps4-sh3-full-dispatch-20261004` branch resolves groups 0 and 4 at
+initialization too. Their 8,192 opcodes now select the existing final handler
+directly, avoiding the remaining low-byte execution switch. The table stays
+512 KiB. Source outside the decoder region is identical to T2
+`4758ee7df64c5ea4d5f9a3ca5c729e253778f809`.
+
+`test.py --static-only` parsed all 65,536 opcode selections and operands against
+S successfully. Negative checks rejected a wrong handler, modified operand,
+missing case and wrapping initialization counter. This is source verification,
+not compiled instruction execution. The updated sanitizer fixture, game
+replays and timing comparisons have NOT run for this candidate: the user
+explicitly requested stopping before compilation.
+
+T2 hardware klog shows DDPSDOJ and DDPDFK executing, but the user reports
+remaining frame drops. Both CPU/device phases and ordered blitter work can be
+expensive. `cpu_us` includes in-run device waits; it does not isolate the SH3
+interpreter. No PS4 speed improvement is claimed for this source candidate.
+
+## Historical T/T2 implementation and validation
+
 S baseline: `efb057ecb65ef9080ce135c37380ba0f911d3141`.
 
 `execute_one` previously selected an instruction with an outer high-nibble switch and several nested switches. CPU initialization now builds 65,536 function pointers using the same decoding decisions; execution selects the existing handler through the fetched 16-bit opcode. Groups 0 and 4 retain their existing low-byte decoders. This is a partial flattening, not a rewritten SH3 CPU or a decoded-RAM cache.
