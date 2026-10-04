@@ -264,6 +264,63 @@ static void cold_guard_cases() {
  printf("PASS cold guard register snapshots/spills/maps/callback/alias cases=%u\n",cases);
 }
 
+
+static UINT32 mac_io_read(UINT32 address) {
+ observations.push_back(m_mach);observations.push_back(m_macl);
+ for(int i=0;i<16;++i)observations.push_back(m_r[i]);
+ return io_read(address);
+}
+static void mac_io_write(UINT32 address, UINT32 value) {
+ observations.push_back(m_mach);observations.push_back(m_macl);
+ for(int i=0;i<16;++i)observations.push_back(m_r[i]);
+ io_write(address,value);
+}
+static void multiply_cases() {
+ CHECK(opcode_dispatch[0x0127]==MULL);
+ CHECK(opcode_dispatch[0x011a]==STSMACL && opcode_dispatch[0x010a]==STSMACH);
+ CHECK(opcode_dispatch[0x411a]==LDSMACL && opcode_dispatch[0x410a]==LDSMACH);
+ public_dispatch=true;Sh3SetJitEnabled(1);Sh3X64::release();Sh3Reset();
+ for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+ for(int i=0;i<32;++i)((UINT16*)memory)[0x80+i]=0x0127;
+ m_pc=0x100;m_sr=0;m_r[1]=0xffffffff;m_r[2]=0x80000000;
+ unsigned long long n=Sh3X64::native_ops;compare(64,true);CHECK(Sh3X64::native_ops==n+32);
+ unsigned cases=1;
+ const UINT32 values[]={0,1,2,0xffff,0xffffffff,0x80000000,0x7fffffff,0xdeadbeef};
+ for(unsigned a=0;a<8;++a) for(unsigned b=0;b<8;++b) for(int alias=0;alias<2;++alias) {
+  Sh3Reset();m_pc=0x100;m_sr=0x700000f1;m_r[1]=values[a];m_r[2]=values[b];
+  m_mach=0x12345678;m_macl=0x87654321;
+  for(int i=0;i<64;++i)((UINT16*)memory)[0x80+i]=0x0009;
+  const UINT16 program[]={0x0127,0x041a,0x040a,0x441a,0x4410,0x440a,0x051a};
+  memcpy(memory+0x100,program,sizeof(program));if(alias)((UINT16*)memory)[0x80]=0x0117;
+  // The DT peek is ordinary NOP, so this also mixes MAC and guarded ops.
+  compare(40,true);++cases;
+ }
+ const int counts[]={1,4,16};
+ const int budgets[]={0,1,2,7,8,15,16,31,32,33,34,40,48,64,96};
+ for(unsigned c=0;c<3;++c) for(int event=0;event<7;++event)
+ for(unsigned b=0;b<15;++b) for(int taken=0;taken<2;++taken) {
+  MemMapR[3]=MemMapW[3]=memory;Sh3Reset();m_pc=0x100;m_sr=taken;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(int i=0;i<16;++i)m_r[i]=0x4000+i*16;
+  m_r[1]=0xfedcba98;m_r[2]=0x76543210;m_r[3]=0x30010;m_r[7]=3;
+  m_mach=0x11223344;m_macl=0x55667788;
+  for(int i=0;i<counts[c];++i)((UINT16*)memory)[0x80+i]=0x0127;
+  ((UINT16*)memory)[0x80+counts[c]]=0x041a;
+  const unsigned at=0x80+counts[c]+1;
+  if(event==1)((UINT16*)memory)[at]=0x6632;
+  if(event==2)((UINT16*)memory)[at]=0x2362;
+  if(event==3)((UINT16*)memory)[at]=0x8902;
+  if(event==4 || event==5) {((UINT16*)memory)[at]=0x8d02;((UINT16*)memory)[at+1]=event==4?0x0127:0x481a;}
+  if(event==6) {((UINT16*)memory)[at]=0x4710;((UINT16*)memory)[at+1]=0x8bfd;}
+  Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+  Sh3SetReadLongHandler(1,mac_io_read);Sh3SetWriteLongHandler(1,mac_io_write);
+  compare(budgets[b],true);++cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;Sh3SetReadLongHandler(1,io_read);Sh3SetWriteLongHandler(1,io_write);
+ Sh3X64::release();public_dispatch=false;
+ printf("PASS native multiply/MAC/extra-cycles/branch/delay/DT/callback cases=%u\n",cases);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -275,9 +332,10 @@ int main() {
  runtime_option_cases();
  dt_cases();
  cold_guard_cases();
+ multiply_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
- const UINT16 safe[]={0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
+ const UINT16 safe[]={0x0127,0x011a,0x411a,0x410a,0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
   0x3128,0x2129,0x212a,0x212b,0x612c,0x612d,0x612e,0x612f,0x6118,
   0x6119,0x4110,0x4111,0x4115,0x4118,0x4119,0x411c,0x412d,
   0x2128,0x3120,0x3122,0x3123,0x3126,0x3127,0x4210,
@@ -348,7 +406,7 @@ int main() {
     memset(Sh3X64::blocks+set*Sh3X64::WAYS,0,sizeof(Sh3X64::Block)*Sh3X64::WAYS);
    }
    const unsigned long long prior=Sh3X64::native_blocks;
-   compare(32,true); CHECK(Sh3X64::native_blocks>prior);
+   compare(handler==MULL?33:32,true); CHECK(Sh3X64::native_blocks>prior);
   }
  }
  // Every conditional displacement, both directions, at multiple offsets and

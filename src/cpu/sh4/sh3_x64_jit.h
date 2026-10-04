@@ -88,9 +88,9 @@ static bool allocate() {
 // Generated functions never call a handler or leave callee-saved state dirty.
 struct Compiler {
 	unsigned char bytes[SLOT_BYTES];
-	unsigned size, ops, extra_cycles;
+	unsigned size, ops, extra_cycles, nonbranch_cycles;
  struct GuardExit {
-  unsigned at[4], count, completed;
+  unsigned at[4], count, result;
   int guest[REGS]; bool dirty[REGS];
  } guard_exits[MAX_OPS];
  unsigned guard_count;
@@ -98,7 +98,7 @@ struct Compiler {
 	const UINT16 *source;
 	int guest[REGS], age[REGS], clock;
 	bool dirty[REGS], locked[REGS];
-	Compiler(UINT32 address=0, const UINT16 *fetch=NULL) : size(0), ops(0), extra_cycles(0), pc(address), source(fetch), clock(0) {
+	Compiler(UINT32 address=0, const UINT16 *fetch=NULL) : size(0), ops(0), extra_cycles(0), nonbranch_cycles(0), pc(address), source(fetch), clock(0) {
   guard_count=0;
 		for (int i=0;i<REGS;++i) { guest[i]=-1; age[i]=0; dirty[i]=locked[i]=false; }
 		byte(0x53); byte(0x41); byte(0x54); byte(0x41); byte(0x55); // preserve rbx,r12,r13
@@ -159,7 +159,7 @@ struct Compiler {
 	}
 	void finish(unsigned result=0xffffffff) {
 		for (int i=0;i<REGS;++i) if(dirty[i]) memory(true,host(i),7,guest[i]*4);
-		imm(0,result==0xffffffff?ops:result);
+		imm(0,result==0xffffffff?(ops|(nonbranch_cycles<<16)):result);
 		byte(0x41);byte(0x5e);
 		byte(0x41);byte(0x5d);byte(0x41);byte(0x5c);byte(0x5b);
 		byte(0xc3);
@@ -169,7 +169,7 @@ struct Compiler {
  // the normal region return, never executed on the successful path.
  void guard_exit(const unsigned *at, unsigned count) {
   if(guard_count>=MAX_OPS || count>4) { size=SLOT_BYTES+1; return; }
-  GuardExit &e=guard_exits[guard_count++];e.count=count;e.completed=ops;
+  GuardExit &e=guard_exits[guard_count++];e.count=count;e.result=ops|(nonbranch_cycles<<16);
   for(unsigned i=0;i<count;++i)e.at[i]=at[i];
   for(int i=0;i<REGS;++i){e.guest[i]=guest[i];e.dirty[i]=dirty[i];}
  }
@@ -178,7 +178,7 @@ struct Compiler {
    const GuardExit &e=guard_exits[k];
    for(unsigned i=0;i<e.count;++i)patch(e.at[i]);
    for(int i=0;i<REGS;++i){guest[i]=e.guest[i];dirty[i]=e.dirty[i];}
-   finish(e.completed);
+   finish(e.result);
   }
  }
 	bool store(UINT16 opcode, Sh3OpcodeHandler h) {
@@ -235,7 +235,7 @@ struct Compiler {
 			if(alu(source[ops+1])) {
 				native_delay=true;
 				set_global(&m_pc,target);set_global(&m_ppc,target);set_global(&m_ea,target);
-				finish(0x80010000|(ops+2));
+				finish(0x80000000|((nonbranch_cycles+1)<<16)|(ops+2));
 			} else size=saved.size;
 			clock=saved.clock;
 			for(int i=0;i<REGS;++i) {
@@ -245,7 +245,7 @@ struct Compiler {
 		if(!native_delay) {
 			set_global(&m_pc,target);set_global(&m_ppc,next);set_global(&m_ea,target);
 			if(delayed) set_global(&m_delay,next);
-			finish((delayed?0x80010000:0x80020000)|(ops+1));
+			finish(0x80000000|((nonbranch_cycles+(delayed?1:2))<<16)|(ops+1));
 		}
 		patch(untaken);
 		extra_cycles=2;return true;
@@ -319,11 +319,30 @@ struct Compiler {
 		immediate(5, d, 1); condition(4); changed(d);
 		return true;
 	}
+ // MAC operations are not pure GPR/SR delay-slot operations. Keep them
+ // in op(), outside alu(), and expose the architectural MAC state directly.
+ bool multiply_mac(UINT16 opcode, Sh3OpcodeHandler h) {
+  const int n=(opcode>>8)&15,m=(opcode>>4)&15;
+  if(h==MULL) {
+   int a=reg(n),b=reg(m);rr(0x89,0,a);
+   rex(0,b);byte(0x0f);byte(0xaf);byte(0xc0|(b&7)); // imul eax,r32; low32 product
+   absolute(3,&m_macl);byte(0x89);byte(0x03);
+   ++nonbranch_cycles;return true;
+  }
+  UINT32 *mac=(h==STSMACH || h==LDSMACH)?&m_mach:&m_macl;
+  if(h==STSMACH || h==STSMACL) {
+   int d=reg(n,false);absolute(0,mac);memory(false,d,0,0);changed(d);
+  } else {
+   int s=reg(n);absolute(0,mac);memory(true,s,0,0);
+  }
+  return true;
+ }
 	bool op(UINT16 opcode) {
 		for(int i=0;i<REGS;++i) locked[i]=false;
 		const Sh3OpcodeHandler h=opcode_dispatch[opcode];
 		if(h==BT || h==BF || h==BTS || h==BFS) return branch(opcode,h);
 		if(h==DT) return decrement_test(opcode);
+		if(h==MULL || h==STSMACH || h==STSMACL || h==LDSMACH || h==LDSMACL) return multiply_mac(opcode,h);
 		if(h==MOVBS || h==MOVWS || h==MOVLS || h==MOVBM || h==MOVWM || h==MOVLM || h==MOVBS0 || h==MOVWS0 || h==MOVLS0 || h==MOVBS4 || h==MOVWS4 || h==MOVLS4)
 			return store(opcode,h);
 		if(h==MOVBL || h==MOVWL || h==MOVLL || h==MOVBP || h==MOVWP || h==MOVLP || h==MOVWI || h==MOVLI || h==MOVBL0 || h==MOVWL0 || h==MOVLL0 || h==MOVBL4 || h==MOVWL4 || h==MOVLL4)
@@ -421,7 +440,7 @@ static void compile(Block &b, UINT32 pc, const UINT16 *source) {
 		if(!c.op(source[i])) break;
 		++b.words; ++c.ops;
 	}
-	b.extra_cycles=c.extra_cycles;
+	b.extra_cycles=c.extra_cycles+c.nonbranch_cycles;
 	if(b.words<MIN_OPS) {
 #ifdef FBNEO_SH3_JIT_TEST
 		++short_blocks;
