@@ -1,5 +1,50 @@
 # Ibara / CV1000 CPU drawing candidate
 
+## 2026-10-04 follow-up: SH3 execution loop
+
+The user confirmed X runs Ibara but still drops frames, then requested a more
+aggressive optimization. Branch `ps4-ibara-threaded-sh3-20261004` adds GNU direct
+threaded dispatch for 105 common integer/memory/branch handler entries. Hot
+handlers can inline into the execution loop; remaining opcodes use the existing
+function table. Normal and slice-timer modes each preserve the original order
+of fetch, delay-slot handling, IRQ checks, base-cycle accounting and timer work.
+Guest clock, speedhack settings and game timing are unchanged. This is an
+interpreter optimization, not a JIT or GPU offload.
+
+It is enabled for PS4 and native rendering-test builds with GCC/Clang. Build
+with `FBNEO_SH3_THREADED_DISPATCH=0` for the reference loop. Derived dispatch
+storage adds 1 MiB, with no guest-code cache or save-state layout change. The
+static label tables and noinline/noclone controls keep initialization labels
+attached to the same function body that executes them.
+
+The preceding independent commit `ea1d73572` avoids CV1000 batch barriers caused
+only by empty space inside aggregate bounding boxes, and probes affected cache
+sets for small VRAM writes. Real RAW/WAR barriers and row-ordered writes remain.
+Its ASan/UBSan and scalar rasterizer differential tests passed.
+
+Native Ibara 3,600-frame ABBA measurements (same input, 3 drawing lanes):
+
+| Comparison | Baseline ms/frame | Candidate ms/frame | Reduction |
+| --- | ---: | ---: | ---: |
+| X vs complete candidate | 2.85250 | 2.48400 | 12.92% |
+| New drawing code, old vs new SH3 loop | 2.85295 | 2.53015 | 11.31% |
+
+All eight runs matched video/audio hashes and final save state. Five additional
+X/candidate pairs (2,400 frames each) matched Ibara 16/32-bit, DDPSDOJ, DDPDFK
+and Mushisama with reset/load and drawing-thread option changes. The execution
+loop differential suite checks CPU/device state, RAM, IRQ/timer boundaries and
+cycles under ASan/UBSan; the existing 65,536-opcode decoder comparison passed.
+
+The same loop comparisons also passed Clang 14.0.3 from the PS4 image
+(Linux native target, -O3) and host Clang 18 (-O3). The PS4 compiler accepted
+the modified SH3 translation unit as FreeBSD/x86-64.
+A new complete PS4 SELF/PKG has **not** been built; native averages above are
+not PS4 frame rates or evidence of stable full speed. Evidence is retained in
+`testbuild/y-ibara-logs/validation-report.json` and adjacent logs. No new klog
+reader was started, and the paused cheat investigation remains paused.
+
+---
+
 2026-10-04: X has been built after the user authorized compilation. Branch
 `ps4-ibara-cpu-blitter-20261004`, based on W cleanup commit
 `e32e95c1b1c463a9d72704125a6e4be0186869d9`; core build source is

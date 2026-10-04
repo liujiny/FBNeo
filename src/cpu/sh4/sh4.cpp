@@ -41,6 +41,16 @@ Redistributions may not be sold, nor may they be used in a commercial product or
 #define COMBINE_DATA(varptr)		(*(varptr) = (*(varptr) & ~mem_mask) | (data & mem_mask))
 
 static void init_opcode_dispatch(void);
+#ifndef FBNEO_SH3_THREADED_DISPATCH
+#if (defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)) && (defined(__GNUC__) || defined(__clang__))
+#define FBNEO_SH3_THREADED_DISPATCH 1
+#else
+#define FBNEO_SH3_THREADED_DISPATCH 0
+#endif
+#endif
+#if FBNEO_SH3_THREADED_DISPATCH
+static void init_threaded_dispatch(void);
+#endif
 
 static int c_md2;
 static int c_md1;
@@ -931,6 +941,9 @@ void Sh3Init(INT32 num, INT32 hz, char md0, char md1, char md2, char md3, char m
 	cave_blitter_delay.init(0 | 0x100, cave_blitter_delay_func); // "| 0x100" for timer logging
 
 	init_opcode_dispatch();
+#if FBNEO_SH3_THREADED_DISPATCH
+	init_threaded_dispatch();
+#endif
 
 	sh4_set_cave_blitter_delay_func(NULL);
 
@@ -4811,9 +4824,17 @@ static int Sh3Run_normal(int cycles)
 	return cycles;
 }
 
+#if FBNEO_SH3_THREADED_DISPATCH
+#include "sh3_threaded.h"
+#endif
+
 int Sh3Run(int cycles)
 {
+#if FBNEO_SH3_THREADED_DISPATCH
+	return (timer_granularity == 0) ? Sh3Run_threaded<false>(cycles, false) : Sh3Run_threaded<true>(cycles, false);
+#else
 	return (timer_granularity == 0) ? Sh3Run_normal(cycles) : Sh3Run_timerhack(cycles);
+#endif
 }
 
 #if 0
