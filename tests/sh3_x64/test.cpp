@@ -321,6 +321,30 @@ static void multiply_cases() {
  printf("PASS native multiply/MAC/extra-cycles/branch/delay/DT/callback cases=%u\n",cases);
 }
 
+
+static void native_dispatch_loop_cases() {
+ public_dispatch=true;Sh3SetJitEnabled(1);unsigned cases=0;
+ // Cross many adjacent native regions and straddle both exact native budget
+ // exhaustion and an interpreter remainder. Zero budgets must still execute
+ // the legacy initial instruction instead of being mistaken for completion.
+ for(int multiply=0;multiply<2;++multiply) for(int budget=0;budget<=257;++budget) {
+  Sh3Reset();m_pc=0x100;m_sr=0;m_r[1]=0xfedcba98;m_r[2]=7;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=multiply?0x0127:0x7101;
+  compare(budget,true);++cases;
+ }
+ // A zero-completed native guard after several completed regions must stop
+ // dispatching and invoke the device exactly once at its original PC/cycle.
+ for(int region=0;region<5;++region) {
+  Sh3Reset();m_pc=0x100;m_sr=0;m_r[2]=0x30010;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x7101;
+  ((UINT16*)memory)[0x80+region*32]=0x6322;
+  Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ);Sh3SetReadLongHandler(1,mac_io_read);
+  compare(192,true);++cases;MemMapR[3]=memory;
+ }
+ Sh3SetReadLongHandler(1,io_read);Sh3X64::release();public_dispatch=false;
+ printf("PASS internal native dispatch boundaries/zero budget/device cases=%u\n",cases);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -333,6 +357,7 @@ int main() {
  dt_cases();
  cold_guard_cases();
  multiply_cases();
+ native_dispatch_loop_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0127,0x011a,0x411a,0x410a,0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,

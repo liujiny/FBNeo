@@ -465,8 +465,13 @@ static void compile(Block &b, UINT32 pc, const UINT16 *source) {
 }
 } // namespace Sh3X64
 
+// Keep this dispatcher frame across consecutive native regions. Every region
+// repeats all entry gates and opcode validation. Return true only when native
+// execution exhausted the budget; false leaves the next instruction to the
+// interpreter (including the legacy behavior for a zero initial budget).
 static bool sh3_x64_run() {
 	using namespace Sh3X64;
+next_region:
 	if(!enabled || m_sh4_icount<MIN_OPS || m_delay || m_test_irq || !allocate()) return false;
 	const UINT32 phys=m_pc&AM;
 	const UINT8 *page=MemMapF[phys>>SH3_SHIFT];
@@ -521,7 +526,8 @@ static bool sh3_x64_run() {
 #ifdef FBNEO_SH3_JIT_TEST
 	++native_blocks; native_ops+=completed;
 #endif
-	return true;
+	if(m_sh4_icount<=0) return true;
+	goto next_region;
 }
 static void sh3_x64_exit() { Sh3X64::release(); }
 #endif

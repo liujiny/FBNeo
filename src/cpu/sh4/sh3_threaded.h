@@ -300,8 +300,7 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 #define SH3_TRY_NATIVE() do { \
 	if (UseJit && jit_entry && SliceTimers && !m_delay && !m_test_irq) { \
 		jit_entry = false; \
-		while (sh3_x64_run()) \
-			if (m_sh4_icount <= 0) goto finished; \
+		if (sh3_x64_run()) goto finished; \
 		if (m_delay) jit_entry = true; \
 	} \
 } while (0)
