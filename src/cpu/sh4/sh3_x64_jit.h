@@ -89,11 +89,17 @@ static bool allocate() {
 struct Compiler {
 	unsigned char bytes[SLOT_BYTES];
 	unsigned size, ops, extra_cycles;
+ struct GuardExit {
+  unsigned at[4], count, completed;
+  int guest[REGS]; bool dirty[REGS];
+ } guard_exits[MAX_OPS];
+ unsigned guard_count;
 	UINT32 pc;
 	const UINT16 *source;
 	int guest[REGS], age[REGS], clock;
 	bool dirty[REGS], locked[REGS];
 	Compiler(UINT32 address=0, const UINT16 *fetch=NULL) : size(0), ops(0), extra_cycles(0), pc(address), source(fetch), clock(0) {
+  guard_count=0;
 		for (int i=0;i<REGS;++i) { guest[i]=-1; age[i]=0; dirty[i]=locked[i]=false; }
 		byte(0x53); byte(0x41); byte(0x54); byte(0x41); byte(0x55); // preserve rbx,r12,r13
 		byte(0x49); byte(0x89); byte(0xd4); // r12=read map (third SysV argument)
@@ -158,6 +164,23 @@ struct Compiler {
 		byte(0x41);byte(0x5d);byte(0x41);byte(0x5c);byte(0x5b);
 		byte(0xc3);
 	}
+ // Snapshot only the state needed to write back a precise failed guard.
+ // Successful memory accesses fall through; failure stubs are appended after
+ // the normal region return, never executed on the successful path.
+ void guard_exit(const unsigned *at, unsigned count) {
+  if(guard_count>=MAX_OPS || count>4) { size=SLOT_BYTES+1; return; }
+  GuardExit &e=guard_exits[guard_count++];e.count=count;e.completed=ops;
+  for(unsigned i=0;i<count;++i)e.at[i]=at[i];
+  for(int i=0;i<REGS;++i){e.guest[i]=guest[i];e.dirty[i]=dirty[i];}
+ }
+ void finish_guards() {
+  for(unsigned k=0;k<guard_count;++k) {
+   const GuardExit &e=guard_exits[k];
+   for(unsigned i=0;i<e.count;++i)patch(e.at[i]);
+   for(int i=0;i<REGS;++i){guest[i]=e.guest[i];dirty[i]=e.dirty[i];}
+   finish(e.completed);
+  }
+ }
 	bool store(UINT16 opcode, Sh3OpcodeHandler h) {
 		const bool pre=h==MOVBM || h==MOVWM || h==MOVLM;
 		const bool indexed=h==MOVBS0 || h==MOVWS0 || h==MOVLS0;
@@ -187,9 +210,7 @@ struct Compiler {
 		byte(0x48);byte(0x81);byte(0xfb);word(MAX_OPS*2+width-1);
 		exits[count++]=jump(2);
 		byte(0x48);byte(0x01);byte(0xc3);
-		unsigned ready=jump(-1);
-		for(unsigned i=0;i<count;++i) patch(exits[i]);
-		finish(); patch(ready);
+		guard_exit(exits,count);
 		int value=reg(m);rr(0x89,0,value);
 		if(width==4) shift(0,0,16);
 		if(width==2) byte(0x66);
@@ -259,10 +280,7 @@ struct Compiler {
 		}
 		byte(0x49);byte(0x8b);byte(0x1c);byte(0xc4); // rbx=[r12+rax*8]
 		byte(0x48);byte(0x83);byte(0xfb);byte(SH3_MAXHANDLER);exits[count++]=jump(2);
-		unsigned ready=jump(-1);
-		for(unsigned i=0;i<count;++i) patch(exits[i]);
-		finish(); // precise partial-block exit before the faulting guest op
-		patch(ready);
+		guard_exit(exits,count);
 		if(pc_relative) imm(0,literal&SH3_PAGEM);
 		else {rr(0x89,0,13);immediate(4,0,SH3_PAGEM);}
 		if(width==1) immediate(6,0,1); // guest byte addressing is word-swapped
@@ -294,8 +312,8 @@ struct Compiler {
 		unsigned handler = jump(2);
 		byte(0x66); byte(0x81); byte(0xbb); word(next & SH3_PAGEM);
 		byte(0xfd); byte(0x8b); // cmp word [rbx+offset],0x8bfd
-		unsigned busy = jump(4), ready = jump(-1);
-		patch(handler); patch(busy); finish(); patch(ready);
+		unsigned exits[2] = {handler,jump(4)};
+		guard_exit(exits,2);
 #endif
 		int d = reg((opcode >> 8) & 15);
 		immediate(5, d, 1); condition(4); changed(d);
@@ -410,7 +428,7 @@ static void compile(Block &b, UINT32 pc, const UINT16 *source) {
 #endif
 		return;
 	}
-	c.finish(); if(c.size>SLOT_BYTES) return;
+	c.finish(); c.finish_guards(); if(c.size>SLOT_BYTES) return;
 	unsigned char *dest=code+used;
 	void *page=(void*)((uintptr_t)dest & ~(uintptr_t)(page_bytes-1));
 	const size_t span=(((uintptr_t)dest+c.size+page_bytes-1)&~(uintptr_t)(page_bytes-1))-(uintptr_t)page;

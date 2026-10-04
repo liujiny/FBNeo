@@ -217,6 +217,53 @@ static void dt_cases() {
  printf("PASS DT native/busy/READ-vs-FETCH/map/page/alias/delay cases=%u\n",cases);
 }
 
+
+static void cold_guard_cases() {
+ public_dispatch=true;Sh3SetJitEnabled(1);Sh3X64::release();
+ unsigned cases=0;
+ const UINT16 ops[]={0x6122,0x6126,0x2122,0x2126,0x6210};
+ // Many dirty guest registers force cache spills before each guarded exit;
+ // snapshots must retain the allocation at that exit, not the final block.
+ for(unsigned kind=0;kind<4;++kind) for(int pos=0;pos<25;++pos)
+ for(int mapping=0;mapping<3;++mapping) for(int branch=0;branch<2;++branch) {
+  MemMapR[3]=MemMapW[3]=memory;Sh3Reset();
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(int i=0;i<16;++i)m_r[i]=0x4000+i*16;
+  m_pc=0x100;m_sr=0;
+  for(int i=0;i<pos;++i)((UINT16*)memory)[0x80+i]=0x7001|((4+i%12)<<8);
+  if(branch && pos>0)((UINT16*)memory)[0x80+pos/2]=0x8902; // untaken, keeps fallthrough
+  ((UINT16*)memory)[0x80+pos]=ops[kind];
+  for(int i=pos+1;i<32;++i)((UINT16*)memory)[0x80+i]=0x7003|((4+i%12)<<8);
+  const int address=kind<2?2:1;
+  m_r[address]=mapping==0?0x4010:mapping==1?0x30010:0x10000+0x100+(pos+1)*2;
+  if(kind==3)m_r[address]+=4;
+  // Long stores require aligned addresses; the alias still targets future code.
+  m_r[address]&=~3U;
+  if(kind>=2)m_r[2]=0x00090009;
+  if(mapping==1) {
+   Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+   Sh3SetReadLongHandler(1,io_read);Sh3SetWriteLongHandler(1,io_write);
+  }
+  compare(40,true);++cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;
+ // Multiple guards in one region, with only a later map reaching a handler.
+ for(int failing=0;failing<16;++failing) for(int prefix=0;prefix<8;++prefix) {
+  Sh3Reset();m_pc=0x100;m_sr=0;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(int i=0;i<16;++i)m_r[i]=0x4000+i*16;
+  m_r[2]=0x4000;m_r[3]=0x30010;
+  for(int i=0;i<32;++i) {
+   ((UINT16*)memory)[0x80+i]=(i%2)?(0x7001|((4+(i+prefix)%12)<<8)):0x6122;
+  }
+  ((UINT16*)memory)[0x80+failing*2]=0x6132;
+  Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ);Sh3SetReadLongHandler(1,io_read);
+  compare(40,true);++cases;MemMapR[3]=memory;
+ }
+ Sh3X64::release();public_dispatch=false;
+ printf("PASS cold guard register snapshots/spills/maps/callback/alias cases=%u\n",cases);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -227,6 +274,7 @@ int main() {
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
  runtime_option_cases();
  dt_cases();
+ cold_guard_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
