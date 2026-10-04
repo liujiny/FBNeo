@@ -13,7 +13,7 @@ namespace Sh3X64 {
 #define FBNEO_SH3_JIT_MIN_OPS 8
 #endif
 enum { SLOTS = 32768, WAYS = 4, CACHE_SETS = SLOTS/WAYS, SLOT_BYTES = 8192,
-       MAX_OPS = 32, MIN_OPS = FBNEO_SH3_JIT_MIN_OPS, CODE_BYTES = 4*1024*1024, REGS = 6 };
+       MAX_OPS = 32, MIN_OPS = FBNEO_SH3_JIT_MIN_OPS, CODE_BYTES = 8*1024*1024, REGS = 6 };
 typedef unsigned (*Entry)(UINT32 *, UINT32 *, UINT8 **, UINT8 **);
 struct Block {
 	UINT32 pc;

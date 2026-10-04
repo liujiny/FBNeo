@@ -345,6 +345,26 @@ static void native_dispatch_loop_cases() {
  printf("PASS internal native dispatch boundaries/zero budget/device cases=%u\n",cases);
 }
 
+
+static void arena_capacity_cases() {
+ CHECK(Sh3X64::CODE_BYTES==8*1024*1024);
+ public_dispatch=true;Sh3SetJitEnabled(1);Sh3X64::release();Sh3Reset();
+ for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x7101;
+ m_pc=0x100;m_sr=0;compare(32,true);
+ const unsigned set=((0x100>>1)^(0x100>>12)^(0x100>>21))&(Sh3X64::CACHE_SETS-1);
+ bool found=false;
+ for(unsigned w=0;w<Sh3X64::WAYS;++w)if(Sh3X64::blocks[set*Sh3X64::WAYS+w].entry)found=true;
+ CHECK(found);
+ m_pc=0x200;compare(32,true);
+ Sh3X64::used=Sh3X64::CODE_BYTES-Sh3X64::SLOT_BYTES+1;
+ m_pc=0x300;const unsigned long long n=Sh3X64::native_ops;compare(32,true);
+ CHECK(Sh3X64::native_ops==n+32 && Sh3X64::used<Sh3X64::SLOT_BYTES);
+ for(unsigned w=0;w<Sh3X64::WAYS;++w)CHECK(!Sh3X64::blocks[set*Sh3X64::WAYS+w].entry);
+ ((UINT16*)memory)[0x80+9]=0x7107;m_pc=0x100;compare(32,true);
+ Sh3X64::release();CHECK(!Sh3X64::code && !Sh3X64::blocks && !Sh3X64::used);public_dispatch=false;
+ puts("PASS 8MiB arena boundary/recycle/stale-entry/edit/release");
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -358,6 +378,7 @@ int main() {
  cold_guard_cases();
  multiply_cases();
  native_dispatch_loop_cases();
+ arena_capacity_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0127,0x011a,0x411a,0x410a,0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,
