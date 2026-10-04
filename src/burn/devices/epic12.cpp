@@ -12,6 +12,7 @@ Redistributions may not be sold, nor may they be used in a commercial product or
 #include "epic12_thread.h"
 #include "rectangle.h"
 #include <math.h> // floor()
+#include "epic12_screen_copy.h"
 
 static const int EP1C_VRAM_CLK_NANOSEC = 13;
 static const int EP1C_SRAM_CLK_NANOSEC = 20;
@@ -1149,15 +1150,16 @@ static void epic12_draw_screen16_24bpp()
 
 		switch (nBurnBpp) {
 			case 2: // 16bpp
+				if (output_rgb565) {
+					epic12_screen_row565(dst, s0, m_gfx_scroll_x, nScreenWidth);
+					dst += (size_t)nScreenWidth * 2;
+					break;
+				}
 				for (INT32 x = 0; x < nScreenWidth; x++, dst += nBurnBpp)
 				{
 					sx = x - scrollx;
 					const UINT32 color = s0[sx & widthmask] & 0xffffff;
-					if (output_rgb565) {
-						PutPix(dst, ((color >> 8) & 0xf800) | ((color >> 5) & 0x07e0) | ((color >> 3) & 0x001f));
-					} else {
-						PutPix(dst, pal16 ? pal16[color] : BurnHighCol(color >> 16, (color >> 8) & 255, color & 255, 0));
-					}
+					PutPix(dst, pal16 ? pal16[color] : BurnHighCol(color >> 16, (color >> 8) & 255, color & 255, 0));
 				}
 				break;
 			case 3: // 24bpp
@@ -1177,7 +1179,6 @@ void epic12_draw_screen(UINT8 &recalc_palette)
 	// The frame must be complete even with the legacy "Before Exec" DIP.
 	thready.notify_wait();
 #endif
-	INT32 scrollx = -m_gfx_scroll_x;
 	INT32 scrolly = -m_gfx_scroll_y;
 
 	if (nBurnBpp != 4) {
@@ -1193,33 +1194,12 @@ void epic12_draw_screen(UINT8 &recalc_palette)
 	UINT32 *dst = (UINT32 *)pBurnDraw;
 	UINT32 *src = (UINT32 *)m_bitmaps;
 	const INT32 heightmask = 0x1000 - 1;
-	const INT32 widthmask  = 0x2000 - 1;
 
 	for (INT32 y = 0; y < nScreenHeight; y++)
 	{
-		UINT32 *s0 = &src[((y - scrolly) & heightmask) * 0x2000];
+		const UINT32 *s0 = &src[((y - scrolly) & heightmask) * 0x2000];
 		UINT32 *d0 = dst + (y * nScreenWidth);
-		INT32 sx;
-		for (INT32 x = 0; x < nScreenWidth; x+=16)
-		{
-			sx = x - scrollx;
-			d0[x + 0] = s0[((sx + 0)) & widthmask];
-			d0[x + 1] = s0[((sx + 1)) & widthmask];
-			d0[x + 2] = s0[((sx + 2)) & widthmask];
-			d0[x + 3] = s0[((sx + 3)) & widthmask];
-			d0[x + 4] = s0[((sx + 4)) & widthmask];
-			d0[x + 5] = s0[((sx + 5)) & widthmask];
-			d0[x + 6] = s0[((sx + 6)) & widthmask];
-			d0[x + 7] = s0[((sx + 7)) & widthmask];
-			d0[x + 8] = s0[((sx + 8)) & widthmask];
-			d0[x + 9] = s0[((sx + 9)) & widthmask];
-			d0[x +10] = s0[((sx +10)) & widthmask];
-			d0[x +11] = s0[((sx +11)) & widthmask];
-			d0[x +12] = s0[((sx +12)) & widthmask];
-			d0[x +13] = s0[((sx +13)) & widthmask];
-			d0[x +14] = s0[((sx +14)) & widthmask];
-			d0[x +15] = s0[((sx +15)) & widthmask];
-		}
+		epic12_screen_row32(d0, s0, m_gfx_scroll_x, nScreenWidth);
 	}
 }
 
