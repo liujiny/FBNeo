@@ -30,6 +30,7 @@ void Sh3Close();
 INT32 Sh3GetActive();
 
 void Sh3Reset();
+void Sh3SetJitEnabled(INT32 enabled); // Apply between runs; disabled when JIT is not built.
 INT32 Sh3Run(INT32 cycles);
 
 void Sh3SetIRQLine(INT32 line, INT32 state);

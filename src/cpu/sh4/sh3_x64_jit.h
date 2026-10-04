@@ -6,6 +6,7 @@
 #define FBNEO_SH3_X64_JIT_H
 #include <sys/mman.h>
 #include <unistd.h>
+#include <emmintrin.h>
 
 namespace Sh3X64 {
 #ifndef FBNEO_SH3_JIT_MIN_OPS
@@ -25,7 +26,7 @@ static Block *blocks;
 static unsigned char *code;
 static size_t page_bytes;
 static unsigned used, next_way[CACHE_SETS];
-static bool failed, enabled = true;
+static bool failed, enabled = false;
 #ifdef FBNEO_SH3_JIT_TEST
 static unsigned long long native_blocks, native_ops, builds, lookups, misses, short_blocks;
 static bool fail_allocation, fail_protection;
@@ -33,6 +34,20 @@ static bool fail_allocation, fail_protection;
 #ifdef FBNEO_SH3_JIT_PROFILE
 static unsigned long long fallback_ops[65536];
 #endif
+
+// Compare all fetched opcodes on every native entry. OpenOrbis memcmp is
+// byte-at-a-time; explicit SSE2 avoids that hot libc call. Never read past
+// checked words, including a block ending immediately before a guest page.
+static inline bool same_opcodes(const UINT16 *a, const UINT16 *b, unsigned words) {
+	while (words >= 8) {
+		const __m128i av = _mm_loadu_si128((const __m128i*)a);
+		const __m128i bv = _mm_loadu_si128((const __m128i*)b);
+		if (_mm_movemask_epi8(_mm_cmpeq_epi8(av, bv)) != 0xffff) return false;
+		a += 8; b += 8; words -= 8;
+	}
+	while (words--) if (*a++ != *b++) return false;
+	return true;
+}
 
 static void release() {
 #ifdef FBNEO_SH3_JIT_PROFILE
@@ -420,7 +435,7 @@ static bool sh3_x64_run() {
 	// Revalidate every native entry.
 	// This covers aliased code, DMA, cheats and state loads without requiring
 	// all guest-memory writers to participate in an invalidation protocol.
-	if(b.pc!=m_pc || b.source!=source || !b.checked || memcmp(b.original,source,b.checked*2)) {
+	if(b.pc!=m_pc || b.source!=source || !b.checked || !same_opcodes(b.original,source,b.checked)) {
 #ifdef FBNEO_SH3_JIT_TEST
 		++misses;
 #endif

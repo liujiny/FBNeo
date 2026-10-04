@@ -1,5 +1,8 @@
 #include "retro_common.h"
 #include "retro_input.h"
+#if defined(FBNEO_SH3_X64_JIT) && FBNEO_SH3_X64_JIT
+#include "sh4_intf.h"
+#endif
 #ifdef BUILD_PGM2
 #include "retro_pgm2_cards.h"
 #endif
@@ -237,6 +240,21 @@ static struct retro_core_option_v2_definition var_fbneo_render_cores = {
 		{ NULL, NULL },
 	},
 	"2"
+};
+#endif
+
+#if defined(FBNEO_SH3_X64_JIT) && FBNEO_SH3_X64_JIT
+static struct retro_core_option_v2_definition var_fbneo_sh3_jit = {
+	"fbneo-sh3-jit",
+	"SH3 JIT (experimental)", NULL,
+	"Native CPU execution for Cave CV1000 games. Performance depends on the game and platform; compare with Disabled if frames drop. Applies between frames without a restart. Does not change the emulated CPU clock.",
+	NULL, NULL,
+	{
+		{ "disabled", "Disabled (default)" },
+		{ "enabled", "Enabled" },
+		{ NULL, NULL },
+	},
+	"disabled"
 };
 #endif
 
@@ -1051,6 +1069,9 @@ void set_environment()
 	var_fbneo_lightgun_crosshair_emulation.default_value   = RETRO_CROSSHAIR_VALUE_0;
 	vars_systems.push_back(&var_fbneo_lightgun_crosshair_emulation);
 
+#if defined(FBNEO_SH3_X64_JIT) && FBNEO_SH3_X64_JIT
+	vars_systems.push_back(&var_fbneo_sh3_jit);
+#endif
 	// Add the video core options
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 	vars_systems.push_back(&var_fbneo_render_cores);
@@ -1605,6 +1626,12 @@ static int percent_parser(const char *value)
 void check_variables(void)
 {
 	struct retro_variable var = {0};
+
+#if defined(FBNEO_SH3_X64_JIT) && FBNEO_SH3_X64_JIT
+	var.key = var_fbneo_sh3_jit.key;
+	Sh3SetJitEnabled(environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) &&
+		var.value && strcmp(var.value, "enabled") == 0);
+#endif
 
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 	var.key = var_fbneo_render_cores.key;

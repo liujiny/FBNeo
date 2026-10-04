@@ -38,7 +38,7 @@ static void compare(int budget, bool slice) {
  const std::vector<UINT32> old_observations=observations;
  const std::vector<UINT8> expected=save(); memcpy(expected_memory,memory,sizeof(memory));
  restore(before); memcpy(memory,saved_memory,sizeof(memory)); callbacks=0; observations.clear();
- const int new_cycles=slice?Sh3Run_threaded<true>(budget,false):Sh3Run_threaded<false>(budget,false);
+ const int new_cycles=slice?Sh3Run_threaded<true, (FBNEO_SH3_X64_JIT != 0)>(budget,false):Sh3Run_threaded<false, false>(budget,false);
  CHECK(old_cycles==new_cycles); CHECK(old_callbacks==callbacks); CHECK(old_observations==observations);
  CHECK(expected==save()); CHECK(!memcmp(memory,expected_memory,sizeof(memory)));
  irq_cases += (m_sr & BL) != 0; timer_cases += old_callbacks != 0;

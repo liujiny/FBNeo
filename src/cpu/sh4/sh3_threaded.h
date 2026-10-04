@@ -229,7 +229,7 @@
 	OP(RTS) \
 	OP(STSPR)
 
-template<bool SliceTimers>
+template<bool SliceTimers, bool UseJit>
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((noinline, noclone))
 #else
@@ -293,12 +293,12 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 } while (0)
 #if FBNEO_SH3_X64_JIT
 #define SH3_JIT_BRANCH(name) do { \
-	if (name==BF || name==BFS || name==BRA || name==BRAF || name==BSR || name==BSRF \
-		|| name==BT || name==BTS || name==JMP || name==JSR || name==RTS) jit_entry=true; \
+	if (UseJit && (name==BF || name==BFS || name==BRA || name==BRAF || name==BSR || name==BSRF \
+		|| name==BT || name==BTS || name==JMP || name==JSR || name==RTS)) jit_entry=true; \
 } while (0)
-#define SH3_JIT_ALU_ALLOWED (!jit_entry)
+#define SH3_JIT_ALU_ALLOWED (!UseJit || !jit_entry)
 #define SH3_TRY_NATIVE() do { \
-	if (jit_entry && SliceTimers && !m_delay && !m_test_irq) { \
+	if (UseJit && jit_entry && SliceTimers && !m_delay && !m_test_irq) { \
 		jit_entry = false; \
 		while (sh3_x64_run()) \
 			if (m_sh4_icount <= 0) goto finished; \
@@ -365,8 +365,11 @@ finished:
 
 static void init_threaded_dispatch(void)
 {
-	Sh3Run_threaded<false>(0, true);
-	Sh3Run_threaded<true>(0, true);
+	Sh3Run_threaded<false, false>(0, true);
+	Sh3Run_threaded<true, (FBNEO_SH3_X64_JIT != 0)>(0, true);
+#if FBNEO_SH3_X64_JIT
+	Sh3Run_threaded<true, false>(0, true);
+#endif
 }
 #undef SH3_ALU_OPS
 #undef SH3_OTHER_OPS

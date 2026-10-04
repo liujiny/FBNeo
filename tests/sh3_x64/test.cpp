@@ -34,7 +34,9 @@ static std::vector<UINT32> observations;
 static void callback(int) { ++callbacks; observations.push_back(Sh3GetPC(-1)); observations.push_back(Sh3TotalCycles()); m_test_irq=1; }
 #define CHECK(c) do { if(!(c)) { fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#c); exit(1); } } while(0)
 
+static bool public_dispatch;
 static void compare(int budget, bool slice) {
+ Sh3SetTimerGranularity(slice ? 1 : 0);
  const std::vector<UINT8> before=save(); memcpy(saved_memory,memory,sizeof(memory));
  if(check_write_page) memcpy(saved_write_page,write_page,sizeof(write_page));
  callbacks=0; observations.clear();
@@ -45,7 +47,8 @@ static void compare(int budget, bool slice) {
  if(check_write_page) memcpy(expected_write_page,write_page,sizeof(write_page));
  restore(before); memcpy(memory,saved_memory,sizeof(memory)); callbacks=0; observations.clear();
  if(check_write_page) memcpy(write_page,saved_write_page,sizeof(write_page));
- const int new_cycles=slice?Sh3Run_threaded<true>(budget,false):Sh3Run_threaded<false>(budget,false);
+ Sh3SetTimerGranularity(slice ? 1 : 0);
+ const int new_cycles=public_dispatch ? Sh3Run(budget) : (slice?Sh3Run_threaded<true, (FBNEO_SH3_X64_JIT != 0)>(budget,false):Sh3Run_threaded<false, false>(budget,false));
  CHECK(old_cycles==new_cycles); CHECK(old_callbacks==callbacks); CHECK(old_observations==observations);
  CHECK(expected==save()); CHECK(!memcmp(memory,expected_memory,sizeof(memory)));
  if(check_write_page) CHECK(!memcmp(write_page,expected_write_page,sizeof(write_page)));
@@ -110,11 +113,70 @@ static void literal_cases() {
  printf("PASS live PC-relative data/map/page/alias/device cases=%u\n",cases);
 }
 
+static void opcode_validation_cases() {
+ const size_t page=sysconf(_SC_PAGESIZE);
+ unsigned char *maps[2];
+ for(int i=0;i<2;++i) {
+  maps[i]=(unsigned char*)mmap(NULL,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+  CHECK(maps[i]!=MAP_FAILED); CHECK(!mprotect(maps[i]+page,page,PROT_NONE));
+ }
+ unsigned cases=0;
+ for(unsigned words=0;words<=Sh3X64::MAX_OPS+1;++words)
+  for(unsigned pad_a=0;pad_a<8;++pad_a) for(unsigned pad_b=0;pad_b<8;++pad_b) {
+   UINT16 *a=(UINT16*)(maps[0]+page)-(words+pad_a);
+   UINT16 *b=(UINT16*)(maps[1]+page)-(words+pad_b);
+   for(unsigned i=0;i<words;++i) a[i]=b[i]=(UINT16)(i*179+words*71);
+   CHECK(Sh3X64::same_opcodes(a,b,words)); ++cases;
+   // Every byte, including the high byte of the last word, is significant.
+   for(unsigned i=0;i<words;++i) for(unsigned bit=0;bit<16;bit+=8) {
+    b[i]^=(UINT16)(1<<bit); CHECK(!Sh3X64::same_opcodes(a,b,words));
+    b[i]^=(UINT16)(1<<bit); ++cases;
+   }
+  }
+ for(int i=0;i<2;++i) CHECK(!munmap(maps[i],page*2));
+ printf("PASS bounded SSE2 opcode comparison/guard pages cases=%u\n",cases);
+}
+
+static void runtime_option_cases() {
+ public_dispatch=true;
+ unsigned cases=0;
+ for(int mode=0;mode<2;++mode) for(int enabled=0;enabled<2;++enabled)
+  for(int budget=0;budget<=40;++budget) {
+   Sh3Reset();Sh3SetJitEnabled(enabled);m_pc=0x100;m_sr=0;
+   for(int i=0;i<64;++i)((UINT16*)memory)[0x80+i]=0x7101;
+   const unsigned long long before=Sh3X64::native_blocks, lookups=Sh3X64::lookups;
+   compare(budget,!!mode);
+   if(!enabled || !mode) CHECK(Sh3X64::lookups==lookups && Sh3X64::native_blocks==before);
+   else if(budget>=32) CHECK(Sh3X64::native_blocks>before);
+   ++cases;
+  }
+ // Re-enable an existing native block after live edits and a state restore.
+ Sh3SetJitEnabled(1);m_pc=0x100;compare(32,true);
+ const std::vector<UINT8> saved=save();
+ Sh3SetJitEnabled(0);((UINT16*)memory)[0x80+20]=0x7107;m_pc=0x100;compare(32,true);
+ restore(saved);Sh3SetJitEnabled(1);m_pc=0x100;compare(32,true);
+ // Allocation/protection failures must route subsequent public runs through
+ // the no-JIT specialization, without cache attempts and with exact timing.
+ for(int mode=0;mode<2;++mode) {
+  Sh3X64::release();Sh3X64::fail_allocation=mode==0;Sh3X64::fail_protection=mode==1;
+  m_pc=0x100;compare(32,true);CHECK(Sh3X64::failed);
+  const unsigned long long lookups=Sh3X64::lookups;
+  m_pc=0x100;compare(32,true);CHECK(Sh3X64::lookups==lookups);
+ }
+ Sh3X64::fail_allocation=Sh3X64::fail_protection=false;Sh3X64::release();
+ public_dispatch=false;Sh3SetJitEnabled(1);
+ printf("PASS public dispatch on/off/failure and state/edit checks; budgets=%u\n",cases);
+}
+
 int main() {
+ opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
+ CHECK(!Sh3X64::enabled);
+ Sh3SetJitEnabled(1);
  // Mirror a bounded backing store across the guest map, so arbitrary branch
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
+ runtime_option_cases();
  literal_cases();
  if(getenv("FBNEO_SH3_LITERAL_ONLY")) { Sh3Exit();return 0; }
  const UINT16 safe[]={0x0009,0x0018,0x0008,0xe123,0x7201,0x6123,0x312c,

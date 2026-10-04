@@ -4844,10 +4844,26 @@ static int Sh3Run_normal(int cycles)
 #include "sh3_threaded.h"
 #endif
 
+// Host preference, changed between frames; never part of the guest save state.
+void Sh3SetJitEnabled(INT32 enabled)
+{
+#if FBNEO_SH3_X64_JIT
+	Sh3X64::enabled = (enabled != 0);
+#else
+	(void)enabled;
+#endif
+}
+
 int Sh3Run(int cycles)
 {
 #if FBNEO_SH3_THREADED_DISPATCH
-	return (timer_granularity == 0) ? Sh3Run_threaded<false>(cycles, false) : Sh3Run_threaded<true>(cycles, false);
+	if (timer_granularity == 0) return Sh3Run_threaded<false, false>(cycles, false);
+#if FBNEO_SH3_X64_JIT
+	// The off/failure path has no per-opcode JIT checks or cache lookups.
+	if (!Sh3X64::enabled || Sh3X64::failed)
+		return Sh3Run_threaded<true, false>(cycles, false);
+#endif
+	return Sh3Run_threaded<true, (FBNEO_SH3_X64_JIT != 0)>(cycles, false);
 #else
 	return (timer_granularity == 0) ? Sh3Run_normal(cycles) : Sh3Run_timerhack(cycles);
 #endif
