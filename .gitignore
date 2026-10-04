@@ -35,3 +35,9 @@ src/burner/libretro/m68kmake
 src/burner/libretro/pgmspritecreate
 !gamelist.txt
 !src/dep/generated/
+
+# Local PS4 build outputs
+*.elf
+*.oelf
+*.self
+/src/burner/libretro/.orbis-dynamic-allocator/

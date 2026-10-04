@@ -42,3 +42,11 @@ are process-local parameters; no new frontend or persistent system changes
 were made for V. The pre-existing authorized klog receiver was found active
 and stopped locally before delivery. Do not automatically reconnect. First
 hardware comparison can run without klog to isolate that variable.
+
+## Source cleanup
+
+Temporary CVPERF/CVBLIT/CVWORKER logging and its probe tests were removed.
+Compiled differential tests and the cumulative V replay proof remain.
+Superseded source-only models, duplicate results and stage drafts remain
+recoverable from Git history. V package binaries and hashes above are unchanged;
+the cleanup branch is source-only and does not imply new hardware validation.

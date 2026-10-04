@@ -4,11 +4,6 @@
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 #include "render_worker.h"
 #include "salvia_fbneo_diagnostics.h"
-#include "epic12_ps4_profile.h"
-#if defined(__PS4__)
-#include <orbis/libkernel.h>
-#include <stdio.h>
-#endif
 
 static void epic12_thread_job(INT32, INT32, INT32);
 
@@ -24,7 +19,6 @@ struct epic12_thread {
 
 	void init(void (*callback)()) {
 		exit(); // allow safe reinitialization, matching PS5 r21
-		cvw_reset();
 		our_callback = callback;
 		startup_frame = 0;
 		enabled = true;
@@ -35,11 +29,6 @@ struct epic12_thread {
 		diag_wait_rng=0x9e3779b9u;
 #endif
 		available = worker.init(epic12_thread_job, 1);
-#if defined(__PS4__)
-        char line[128];
-        snprintf(line,sizeof(line),"[PS4 CVWORKER] created=%u configured_cores=%d\n",available ? 1 : 0,nBurnRenderCores);
-        sceKernelDebugOutText(0,line);
-#endif
 	}
 
 	void notify_wait() {
@@ -96,9 +85,7 @@ static epic12_thread thready;
 
 static void epic12_thread_job(INT32, INT32, INT32)
 {
-	cvw_begin();
 	thready.our_callback();
-	cvw_end();
 }
 #else
 #include "thready.h"
