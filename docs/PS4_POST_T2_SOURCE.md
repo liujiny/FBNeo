@@ -91,8 +91,9 @@ regressions even when average host timings improve.
 
 Only then use the PS4 toolchain and package with the immutable S frontend
 SELF, independent Title ID and required `pkg_validate` checks. Audit object
-targets to avoid the previous Linux/FreeBSD object mix. The current `.elf`,
-`.oelf` and `.self` in the production tree still belong to T2, not this source.
+targets to avoid the previous Linux/FreeBSD object mix. At the initial source-only checkpoint, production `.elf`, `.oelf` and `.self`
+still belonged to T2. U artifacts now have separate archived hashes in the
+project build report; never infer binary provenance from a mutable filename.
 Do not label an existing binary as U until it is rebuilt and archived with
 matching source hashes. Packaging rules and the fixed output directory remain
 in the project handoff and console optimization skill.
@@ -114,3 +115,18 @@ replays (reset, save/load, audio-only and thread changes). Mushisam's lifecycle
 replay matches too. Source hashes, individual runs and comparisons are in
 `tests/sh3_opcode_dispatch/verified-u-replays-20261004.json`. PS4 hardware
 validation is still required, especially matching dense bullet/boss scenes.
+
+## PS4 package validation
+
+U was built from `e9ac4bef764b2caa17b80a8aacc46f89540ee61b` with
+`platform=orbis-dynamic -O3`, using the unchanged S frontend SELF. All 1,140
+object files have the expected x86-64/FreeBSD target. The core SELF is
+99,668,592 bytes, SHA256
+`6c668198de4ac0a9eb7f07fe2c4e5b7b191c7542548c21f72cb86191383c9146`.
+
+`RetroArch_PS4_U_SH3Blit_RAPS10018.pkg` is 179,109,888 bytes (170.8125 MiB),
+SHA256 `9764cc300f727d2e9b81a07bfc26cf9b0ece0dce36326eeae2ec62602bf51e2d`.
+All 32 `pkg_validate` checks pass; all 18 extracted payloads and SFO semantics
+match, and preserved assets match the immutable S manifest. The fixed output
+directory is unchanged. PS4 launch/gameplay/performance for U remain pending;
+this package validation does not substitute for hardware testing.
