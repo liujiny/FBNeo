@@ -25,6 +25,8 @@ INT32 (__cdecl *BurnAcb)(BurnArea *) = scan;
 static std::vector<UINT8> save() { loading=false; offset=0; snapshot.clear(); Sh3Scan(0); return snapshot; }
 static void restore(const std::vector<UINT8> &s) { snapshot=s; loading=true; offset=0; Sh3Scan(0); }
 static UINT8 memory[65536], saved_memory[65536], expected_memory[65536];
+static UINT8 write_page[65536], saved_write_page[65536], expected_write_page[65536];
+static bool check_write_page;
 static unsigned rng=0x48504;
 static unsigned random32() { rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
 static unsigned callbacks, irq_cases, timer_cases;
@@ -34,15 +36,19 @@ static void callback(int) { ++callbacks; observations.push_back(Sh3GetPC(-1)); o
 
 static void compare(int budget, bool slice) {
  const std::vector<UINT8> before=save(); memcpy(saved_memory,memory,sizeof(memory));
+ if(check_write_page) memcpy(saved_write_page,write_page,sizeof(write_page));
  callbacks=0; observations.clear();
  const int old_cycles=slice?Sh3Run_timerhack(budget):Sh3Run_normal(budget);
  const unsigned old_callbacks=callbacks;
  const std::vector<UINT32> old_observations=observations;
  const std::vector<UINT8> expected=save(); memcpy(expected_memory,memory,sizeof(memory));
+ if(check_write_page) memcpy(expected_write_page,write_page,sizeof(write_page));
  restore(before); memcpy(memory,saved_memory,sizeof(memory)); callbacks=0; observations.clear();
+ if(check_write_page) memcpy(write_page,saved_write_page,sizeof(write_page));
  const int new_cycles=slice?Sh3Run_threaded<true>(budget,false):Sh3Run_threaded<false>(budget,false);
  CHECK(old_cycles==new_cycles); CHECK(old_callbacks==callbacks); CHECK(old_observations==observations);
  CHECK(expected==save()); CHECK(!memcmp(memory,expected_memory,sizeof(memory)));
+ if(check_write_page) CHECK(!memcmp(write_page,expected_write_page,sizeof(write_page)));
  irq_cases += (m_sr & BL) != 0; timer_cases += old_callbacks != 0;
 }
 
@@ -123,12 +129,20 @@ int main() {
  for(unsigned op=0;op<65536;++op) {
   Sh3X64::Compiler probe;
   if(!probe.op(op)) continue;
+  if(opcode_dispatch[op]==BT || opcode_dispatch[op]==BF || opcode_dispatch[op]==BTS || opcode_dispatch[op]==BFS) continue; // directed below
   ++accepted;
   for(int trial=0;trial<3;++trial) {
    Sh3Reset(); m_pc=0x100; m_sr=random32();
    const Sh3OpcodeHandler handler=opcode_dispatch[op];
    const bool reads=handler==MOVBL || handler==MOVWL || handler==MOVLL || handler==MOVBP || handler==MOVWP || handler==MOVLP || handler==MOVWI || handler==MOVLI || handler==MOVBL0 || handler==MOVWL0 || handler==MOVLL0 || handler==MOVBL4 || handler==MOVWL4 || handler==MOVLL4;
-   for(int r=0;r<16;++r) m_r[r]=reads?0x4000+r*16:random32();
+   const bool writes=handler==MOVBS || handler==MOVWS || handler==MOVLS || handler==MOVBM || handler==MOVWM || handler==MOVLM || handler==MOVBS0 || handler==MOVWS0 || handler==MOVLS0 || handler==MOVBS4 || handler==MOVWS4 || handler==MOVLS4;
+   for(int r=0;r<16;++r) m_r[r]=(reads||writes)?0x4000+r*16:random32();
+   if(writes) {
+    bool small=handler==MOVBS4 || handler==MOVWS4;
+    bool indexed=handler==MOVBS0 || handler==MOVWS0 || handler==MOVLS0;
+    int addr=small?(op>>4)&15:(op>>8)&15, value=small?0:(op>>4)&15;
+    if(value!=addr && !(indexed && value==0)) m_r[value]=random32();
+   }
    for(int i=0;i<32;++i) ((UINT16*)memory)[0x80+i]=0x0009;
    ((UINT16*)memory)[0x80]=op;
    // Force compilation for this opcode-coverage test, including a PC that
@@ -142,6 +156,82 @@ int main() {
    compare(32,true); CHECK(Sh3X64::native_blocks>prior);
   }
  }
+ // Every conditional displacement, both directions, at multiple offsets and
+ // budgets straddling native-region admission and taken-branch extra cycles.
+ unsigned branches=0;
+ for(unsigned op=0;op<65536;++op) {
+  if(opcode_dispatch[op]!=BT && opcode_dispatch[op]!=BF && opcode_dispatch[op]!=BTS && opcode_dispatch[op]!=BFS) continue;
+  for(int t=0;t<2;++t) for(int pos=0;pos<3;++pos) for(int budget=31;budget<=36;++budget) {
+   Sh3Reset();m_pc=0x400;m_sr=0x700000f0|t;
+   for(int i=0;i<32768;++i) ((UINT16*)memory)[i]=0x0009;
+   ((UINT16*)memory)[0x200+(pos==0?0:pos==1?8:31)]=op;
+   const unsigned long long prior=Sh3X64::native_blocks;
+   compare(budget,true);
+   if(budget>=34) CHECK(Sh3X64::native_blocks>prior);
+   ++branches;
+  }
+ }
+ printf("PASS conditional branch encodings/boundaries=%u\n",branches);
+ // Nontrivial delay slots: all supported arithmetic encodings and an I/O
+ // fallback. Each taken slot must execute once before entering the target.
+ unsigned delay_cases=0;
+ for(unsigned op=0;op<65536;++op) {
+  Sh3X64::Compiler probe;
+  if(!probe.alu(op)) continue;
+  Sh3Reset();m_pc=0x400;m_sr=1;
+  for(int r=0;r<16;++r) m_r[r]=random32();
+  for(int i=0;i<64;++i) ((UINT16*)memory)[0x200+i]=0x0009;
+  ((UINT16*)memory)[0x200]=0x8d10;((UINT16*)memory)[0x201]=op;
+  compare(36,true);++delay_cases;
+ }
+ Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+ Sh3SetReadLongHandler(1,io_read);Sh3SetWriteLongHandler(1,io_write);
+ for(int pos=0;pos<32;++pos) for(int t=0;t<2;++t) {
+  Sh3Reset();m_pc=0x400;m_sr=t;m_r[1]=0x30010;m_r[2]=0x12345678;
+  for(int i=0;i<96;++i) ((UINT16*)memory)[0x200+i]=0x0009;
+  ((UINT16*)memory)[0x200+pos]=0x8d20;((UINT16*)memory)[0x201+pos]=0x2122;
+  compare(40,true);++delay_cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;
+ printf("PASS native and device delay slots=%u\n",delay_cases);
+ // A native store must see current write mappings and must not execute a
+ // stale following opcode, including physical/host aliases and predecrement.
+ const UINT16 stores[]={0x2120,0x2121,0x2122,0x2124,0x2125,0x2126,0x1120};
+ unsigned store_cases=0;
+ for(unsigned s=0;s<sizeof(stores)/sizeof(stores[0]);++s)
+  for(int alias=0;alias<3;++alias) for(int pos=0;pos<2;++pos) {
+   Sh3Reset();m_pc=0x100;m_sr=0;
+   for(int i=0;i<32768;++i) ((UINT16*)memory)[i]=0x0009;
+   for(int r=0;r<16;++r) m_r[r]=0x4000+r*16;
+   const Sh3OpcodeHandler h=opcode_dispatch[stores[s]];
+   const bool pre=h==MOVBM || h==MOVWM || h==MOVLM;
+   int width=h==MOVBS || h==MOVBM?1:h==MOVWS || h==MOVWM?2:4;
+   UINT32 target=0x120+(alias==1?0x10000:alias==2?0xa0000000:0);
+   m_r[1]=target+(pre?width:0);m_r[2]=width==4?0xe5070009:width==2?0xe507:0xe5;
+   ((UINT16*)memory)[0x80+(pos?8:0)]=stores[s];
+   compare(40,true);++store_cases;
+  }
+ // A handler-mapped write must retain exact callback PC/cycles and values.
+ Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+ Sh3SetWriteLongHandler(1,io_write);
+ for(int pos=0;pos<32;++pos) {
+  Sh3Reset();m_pc=0x100;m_sr=0;m_r[1]=0x30010;m_r[2]=0x12345678;
+  for(int i=0;i<64;++i) ((UINT16*)memory)[0x80+i]=0x7201;
+  ((UINT16*)memory)[0x80+pos]=0x2122;compare(36,true);++store_cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;
+ // Reuse the exact same compiled block after changing only the write map.
+ // The first and second maps intentionally differ from the fetch/read map.
+ check_write_page=true;
+ for(int remap=0;remap<3;++remap) {
+  Sh3Reset();m_pc=0x100;m_sr=0;m_r[1]=0x4010;m_r[2]=0x80ff7f01;
+  for(int i=0;i<64;++i) ((UINT16*)memory)[0x80+i]=0x0009;
+  ((UINT16*)memory)[0x88]=0x2122;
+  MemMapW[0]=remap==1?write_page:memory;
+  compare(32,true);++store_cases;
+ }
+ MemMapW[0]=memory;check_write_page=false;
+ printf("PASS store self-modification/alias/device cases=%u\n",store_cases);
  // Carry/overflow and dynamic shift edge values, in addition to random
  // full-encoding coverage. This executes native code, not an emitter model.
  const UINT32 edges[]={0,1,0xffffffff,0x80000000,0x7fffffff,31,32,0xffffffe0};

@@ -302,6 +302,7 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 		jit_entry = false; \
 		while (sh3_x64_run()) \
 			if (m_sh4_icount <= 0) goto finished; \
+		if (m_delay) jit_entry = true; \
 	} \
 } while (0)
 #else
