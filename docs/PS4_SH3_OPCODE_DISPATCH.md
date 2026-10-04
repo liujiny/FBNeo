@@ -1,6 +1,6 @@
 # SH3 opcode dispatch experiment (PS4 T)
 
-## Post-T2 source candidate (2026-10-04; not compiled)
+## Post-T2 source candidate (2026-10-04; host validated)
 
 The `ps4-sh3-full-dispatch-20261004` branch resolves groups 0 and 4 at
 initialization too. Their 8,192 opcodes now select the existing final handler
@@ -11,9 +11,10 @@ directly, avoiding the remaining low-byte execution switch. The table stays
 `test.py --static-only` parsed all 65,536 opcode selections and operands against
 S successfully. Negative checks rejected a wrong handler, modified operand,
 missing case and wrapping initialization counter. This is source verification,
-not compiled instruction execution. The updated sanitizer fixture, game
-replays and timing comparisons have NOT run for this candidate: the user
-explicitly requested stopping before compilation.
+not compiled instruction execution. The user later authorized compilation. The sanitizer fixture now passes,
+and combined U game/lifecycle replays match T2. See
+`tests/sh3_opcode_dispatch/verified-u-replays-20261004.json`; timings measure
+the combined SH3/blend changes, not SH3 alone.
 
 T2 hardware klog shows DDPSDOJ and DDPDFK executing, but the user reports
 remaining frame drops. Both CPU/device phases and ordered blitter work can be

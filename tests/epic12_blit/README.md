@@ -14,7 +14,7 @@ transparent and opaque modes, all alpha/tint ranges, clipping, source wrapping,
 overlapping source/destination VRAM and the accumulated emulated blitter delay.
 The first 1,024 image cases explicitly cover identity tint triplets (31/32),
 source alpha 31 versus 30, adjacent tint 33, both axes of flipping, transparency
-and destination alpha 0/15/30/31. These extensions are pending compilation.
+and destination alpha 0/15/30/31. These extensions passed the compiled native differential test for U.
 
 When compilation must remain stopped, `python3 -B tests/epic12_blit/static_identity.py`
 checks all 65,536 component rounding combinations and 262,144 packed RGB

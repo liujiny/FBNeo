@@ -96,3 +96,21 @@ targets to avoid the previous Linux/FreeBSD object mix. The current `.elf`,
 Do not label an existing binary as U until it is rebuilt and archived with
 matching source hashes. Packaging rules and the fixed output directory remain
 in the project handoff and console optimization skill.
+
+## Completed host validation after compilation authorization
+
+The actual C++ opcode fixture passes ASan/UBSan for all 65,536 opcodes. The
+actual EPIC12 renderer passes 65,536 rounding cases, one million packed adds
+and all 6,024 image differential cases.
+
+Serial 3,000-frame T2/U/U/T2 runs have identical video/audio hashes and final
+state. Mean core time: DDPSDOJ 4.22745 -> 3.88835 ms (8.02% reduction), DDPDFK
+2.85050 -> 2.82610 ms (0.86%; too small to establish a reliable gain). These
+are host timings for the combined changes, not PS4 frame rates or a separate
+measurement of each optimization.
+
+Both games also match T2 with 2/3 render-core settings and 2,400-frame lifecycle
+replays (reset, save/load, audio-only and thread changes). Mushisam's lifecycle
+replay matches too. Source hashes, individual runs and comparisons are in
+`tests/sh3_opcode_dispatch/verified-u-replays-20261004.json`. PS4 hardware
+validation is still required, especially matching dense bullet/boss scenes.
