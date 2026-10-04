@@ -114,6 +114,120 @@
 	OP(XTRCT)
 
 
+// Only these one-cycle register operations can defer bookkeeping. They
+// never access RAM/devices, alter IRQ masking, branch or consume extra cycles.
+#ifndef FBNEO_SH3_ALU_RUNS
+#define FBNEO_SH3_ALU_RUNS 1
+#endif
+#define SH3_ALU_OPS(OP) \
+	OP(ADD) \
+	OP(ADDC) \
+	OP(ADDI) \
+	OP(ADDV) \
+	OP(AND) \
+	OP(ANDI) \
+	OP(CLRT) \
+	OP(CMPEQ) \
+	OP(CMPGE) \
+	OP(CMPGT) \
+	OP(CMPHI) \
+	OP(CMPHS) \
+	OP(CMPIM) \
+	OP(CMPPL) \
+	OP(CMPPZ) \
+	OP(CMPSTR) \
+	OP(EXTSB) \
+	OP(EXTSW) \
+	OP(EXTUB) \
+	OP(EXTUW) \
+	OP(MOV) \
+	OP(MOVI) \
+	OP(NEG) \
+	OP(NEGC) \
+	OP(NOP) \
+	OP(NOT) \
+	OP(OR) \
+	OP(ROTCL) \
+	OP(ROTCR) \
+	OP(ROTL) \
+	OP(ROTR) \
+	OP(SETT) \
+	OP(SHAD) \
+	OP(SHAL) \
+	OP(SHAR) \
+	OP(SHLD) \
+	OP(SHLL) \
+	OP(SHLL16) \
+	OP(SHLL2) \
+	OP(SHLL8) \
+	OP(SHLR) \
+	OP(SHLR16) \
+	OP(SHLR2) \
+	OP(SHLR8) \
+	OP(SUB) \
+	OP(SUBC) \
+	OP(SUBV) \
+	OP(SWAPB) \
+	OP(SWAPW) \
+	OP(TST) \
+	OP(TSTI) \
+	OP(XOR) \
+	OP(XORI) \
+	OP(XTRCT)
+
+#define SH3_OTHER_OPS(OP) \
+	OP(BF) \
+	OP(BFS) \
+	OP(BRA) \
+	OP(BRAF) \
+	OP(BSR) \
+	OP(BSRF) \
+	OP(BT) \
+	OP(BTS) \
+	OP(DT) \
+	OP(JMP) \
+	OP(JSR) \
+	OP(MOVA) \
+	OP(MOVBL) \
+	OP(MOVBL0) \
+	OP(MOVBL4) \
+	OP(MOVBLG) \
+	OP(MOVBM) \
+	OP(MOVBP) \
+	OP(MOVBS) \
+	OP(MOVBS0) \
+	OP(MOVBS4) \
+	OP(MOVBSG) \
+	OP(MOVLI) \
+	OP(MOVLL) \
+	OP(MOVLL0) \
+	OP(MOVLL4) \
+	OP(MOVLLG) \
+	OP(MOVLM) \
+	OP(MOVLP) \
+	OP(MOVLS) \
+	OP(MOVLS0) \
+	OP(MOVLS4) \
+	OP(MOVLSG) \
+	OP(MOVT) \
+	OP(MOVWI) \
+	OP(MOVWL) \
+	OP(MOVWL0) \
+	OP(MOVWL4) \
+	OP(MOVWLG) \
+	OP(MOVWM) \
+	OP(MOVWP) \
+	OP(MOVWS) \
+	OP(MOVWS0) \
+	OP(MOVWS4) \
+	OP(MOVWSG) \
+	OP(MULL) \
+	OP(MULS) \
+	OP(MULU) \
+	OP(ORI) \
+	OP(RTS) \
+	OP(STSPR)
+
 template<bool SliceTimers>
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((noinline, noclone))
@@ -125,6 +239,9 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 	static void *entries[65536];
 	UINT16 opcode;
 	INT32 timer_start = 0;
+	INT32 alu_left = 0;
+	UINT32 alu_pc = 0;
+	bool alu_active = false;
 	if (initialize) {
 		struct Entry { Sh3OpcodeHandler handler; void *label; };
 #define SH3_ENTRY(name) { name, &&op_##name },
@@ -148,6 +265,17 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 		return cycles;
 	}
 	goto fetch;
+
+	// Commit before any operation that can observe CPU state or access a
+	// device, and before returning. Opcodes still come from live guest RAM.
+#define SH3_COMMIT_ALU() do { \
+	if (alu_active) { \
+		sh3_total_cycles += m_sh4_icount - alu_left; \
+		m_sh4_icount = alu_left; \
+		m_pc = m_ppc = alu_pc; \
+		alu_active = false; \
+	} \
+} while (0)
 
 	// Finish precisely one guest instruction before taking an interrupt,
 	// charging its base cycle and advancing the timers in normal mode.
@@ -175,17 +303,35 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 
 fetch:
 	SH3_FETCH();
-#define SH3_EXECUTE(name) op_##name: name(opcode); SH3_NEXT();
-	SH3_THREADED_OPS(SH3_EXECUTE)
+#define SH3_EXECUTE(name) op_##name: SH3_COMMIT_ALU(); name(opcode); SH3_NEXT();
+	SH3_OTHER_OPS(SH3_EXECUTE)
 #undef SH3_EXECUTE
+	// Slice timers advance only at the existing run boundary. Without a
+	// pending IRQ, these one-cycle register operations cannot make an IRQ
+	// visible between themselves. Memory, branches and fallback commit first.
+#define SH3_EXECUTE_ALU(name) op_##name: \
+	if (FBNEO_SH3_ALU_RUNS && SliceTimers && !m_test_irq) { \
+		if (!alu_active) { alu_pc = m_pc; alu_left = m_sh4_icount; alu_active = true; } \
+		name(opcode); \
+		if (--alu_left <= 0) goto finished; \
+		opcode = sh3_cpu_readop16(alu_pc & AM); \
+		alu_pc += 2; \
+		goto *entries[opcode]; \
+	} \
+	SH3_COMMIT_ALU(); name(opcode); SH3_NEXT();
+	SH3_ALU_OPS(SH3_EXECUTE_ALU)
+#undef SH3_EXECUTE_ALU
 fallback:
+	SH3_COMMIT_ALU();
 	execute_one(opcode);
 	SH3_NEXT();
 finished:
+	SH3_COMMIT_ALU();
 	cycles -= m_sh4_icount;
 	if (SliceTimers) sh4_run_timers(cycles);
 	m_sh4_icount = 0;
 	return cycles;
+#undef SH3_COMMIT_ALU
 #undef SH3_FETCH
 #undef SH3_NEXT
 }
@@ -195,5 +341,7 @@ static void init_threaded_dispatch(void)
 	Sh3Run_threaded<false>(0, true);
 	Sh3Run_threaded<true>(0, true);
 }
+#undef SH3_ALU_OPS
+#undef SH3_OTHER_OPS
 #undef SH3_THREADED_OPS
 #endif

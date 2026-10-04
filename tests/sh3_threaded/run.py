@@ -2,6 +2,7 @@
 """Compare both real SH3 dispatch loops; writes build artifacts outside source."""
 import argparse
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -12,6 +13,21 @@ parser.add_argument('--output', type=Path)
 parser.add_argument('--sanitize', action='store_true')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
+# Fail closed if an upstream change gives a deferred handler side effects.
+header = (root / 'src/cpu/sh4/sh3_threaded.h').read_text()
+source = (root / 'src/cpu/sh4/sh4.cpp').read_text()
+section = header.split('#define SH3_ALU_OPS(OP)', 1)[1].split('#define SH3_OTHER_OPS', 1)[0]
+for name in re.findall(r'OP\((\w+)\)', section):
+    match = re.search(r'static (?:inline )?void ' + name + r'\(const UINT16 opcode\)\s*\{', source)
+    assert match, name
+    start = end = match.end()
+    level = 1
+    while level:
+        level += (source[end] == '{') - (source[end] == '}')
+        end += 1
+    body = source[start:end-1]
+    assert set(re.findall(r'\bm_\w+', body)) <= {'m_r', 'm_sr'}, name
+    assert not re.search(r'\b(EAT|RB|RW|RL|WB|WW|WL|sh3_total_cycles|Sh3BurnCycles)\b', body), name
 with tempfile.TemporaryDirectory(prefix='sh3-threaded-') as tmp:
     out = args.output.resolve() if args.output else Path(tmp)
     out.mkdir(parents=True, exist_ok=True)

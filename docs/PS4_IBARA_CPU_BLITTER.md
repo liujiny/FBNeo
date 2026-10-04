@@ -1,5 +1,45 @@
 # Ibara / CV1000 CPU drawing candidate
 
+## 2026-10-04 follow-up: runs of register-only SH3 instructions
+
+Branch `ps4-ibara-alu-runs-20261004` starts from `f9c92b88e`. In the existing
+slice-timer mode, with no pending IRQ, 54 audited one-cycle register handlers
+carry PC and remaining cycles in locals across successive instructions. State
+is committed before memory, branches, other handlers and returning from the
+slice. The normal per-instruction timer mode follows the previous path. Every
+opcode is still fetched from live guest memory; instructions, timing settings
+and guest cycles are unchanged. No new dispatch tables or runtime allocations
+are introduced. Build with `FBNEO_SH3_ALU_RUNS=0` for prior bookkeeping.
+
+The whitelist excludes memory access, IRQ mask changes, branches and any extra
+cycle accounting (including the three-cycle ORI implementation). A source guard
+and actual execution tests check this constraint and observable state. Device
+callbacks record PC/cycles and inject extra cycles, including transitions from
+pure ALU instructions and branch delay slots. Timer callbacks also record the
+state they observe. All 3,346 cases passed GCC ASan/UBSan, Clang 14.0.3 Linux
+native -O3 from the PS4 image, and host Clang 18 -O3. PS4 SH3 object compilation
+passed; complete PS4 SELF/PKG build and hardware validation remain pending.
+
+Ibara 3,600-frame native ABBA results (same inputs, 3 drawing lanes):
+
+| Comparison | Baseline ms/frame | Candidate ms/frame | Reduction |
+| --- | ---: | ---: | ---: |
+| Previous SH3 round | 2.47490 | 2.27180 | 8.21% |
+| X vs combined changes | 2.81100 | 2.23730 | 20.41% |
+
+All eight runs matched video/audio/final state. Five further pairs of 2,400
+frames matched Ibara 16/32-bit, DDPSDOJ, DDPDFK and Mushisama with reset/load and
+drawing-thread option changes. These averages measure native core time, not
+PS4 frame rate or worst-case busy-scene latency. Evidence is retained outside
+Git in `testbuild/z-alu-logs/validation-report.json` and adjacent replay logs.
+
+An earlier prebiased RAM-map prototype was not integrated: its native Ibara
+change was only 0.22%, within run variation. It is preserved on the independent
+`ps4-ibara-fast-memory-20261004` branch at `5fbeb5eb9` with tests/evidence in
+`testbuild/z-ibara-logs`. This does not establish its performance on PS4.
+
+---
+
 ## 2026-10-04 follow-up: SH3 execution loop
 
 The user confirmed X runs Ibara but still drops frames, then requested a more

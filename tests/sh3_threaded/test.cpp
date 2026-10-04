@@ -26,20 +26,47 @@ static UINT8 memory[65536], saved_memory[65536], expected_memory[65536];
 static unsigned rng=0x48504;
 static unsigned random32() { rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
 static unsigned callbacks, irq_cases, timer_cases;
-static void callback(int) { ++callbacks; m_test_irq=1; }
+static std::vector<UINT32> observations;
+static void callback(int) { ++callbacks; observations.push_back(Sh3GetPC(-1)); observations.push_back(Sh3TotalCycles()); m_test_irq=1; }
 #define CHECK(c) do { if(!(c)) { fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#c); exit(1); } } while(0)
 
 static void compare(int budget, bool slice) {
  const std::vector<UINT8> before=save(); memcpy(saved_memory,memory,sizeof(memory));
- callbacks=0;
+ callbacks=0; observations.clear();
  const int old_cycles=slice?Sh3Run_timerhack(budget):Sh3Run_normal(budget);
  const unsigned old_callbacks=callbacks;
+ const std::vector<UINT32> old_observations=observations;
  const std::vector<UINT8> expected=save(); memcpy(expected_memory,memory,sizeof(memory));
- restore(before); memcpy(memory,saved_memory,sizeof(memory)); callbacks=0;
+ restore(before); memcpy(memory,saved_memory,sizeof(memory)); callbacks=0; observations.clear();
  const int new_cycles=slice?Sh3Run_threaded<true>(budget,false):Sh3Run_threaded<false>(budget,false);
- CHECK(old_cycles==new_cycles); CHECK(old_callbacks==callbacks);
+ CHECK(old_cycles==new_cycles); CHECK(old_callbacks==callbacks); CHECK(old_observations==observations);
  CHECK(expected==save()); CHECK(!memcmp(memory,expected_memory,sizeof(memory)));
  irq_cases += (m_sr & BL) != 0; timer_cases += old_callbacks != 0;
+}
+
+static UINT32 io_read(UINT32 address) {
+ observations.push_back(address); observations.push_back(Sh3GetPC(-1));
+ observations.push_back(Sh3TotalCycles()); Sh3BurnCycles(3);
+ return Sh3TotalCycles() ^ Sh3GetPC(-1);
+}
+static void io_write(UINT32 address, UINT32 value) {
+ observations.push_back(address); observations.push_back(value);
+ observations.push_back(Sh3GetPC(-1)); observations.push_back(Sh3TotalCycles());
+ Sh3BurnCycles(2);
+}
+
+static void alu_to_io_boundaries() {
+ Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+ Sh3SetReadLongHandler(1,io_read);Sh3SetWriteLongHandler(1,io_write);
+ const UINT16 program[]={0xe207,0x7201,0x2122,0x7201,0x6312,0x6323,
+  0x7201,0x2122,0x7201,0x6312,0x0009,0x0009};
+ for(int mode=0;mode<2;++mode) for(int delayed=0;delayed<2;++delayed)
+  for(int budget=0;budget<=24;++budget) {
+   Sh3Reset();m_pc=0x100;m_delay=delayed?0x80:0;m_sr=0;m_r[1]=0x30010;
+   memcpy(memory+0x100,program,sizeof(program));((UINT16*)memory)[0x80/2]=0x7201;
+   compare(budget,!!mode);
+  }
+ MemMapR[3]=MemMapW[3]=memory;
 }
 
 int main() {
@@ -83,10 +110,11 @@ int main() {
   Sh3Reset(); for(int r=0;r<16;++r)m_r[r]=0x4000+r*16;
   m_pc=0x100; ((UINT16*)memory)[0x80]=memops[i]; compare(1,!!slice);
  }
+ alu_to_io_boundaries();
  // Guest code remains fetched from live memory, including edits between runs.
  Sh3Reset(); m_pc=0x100; ((UINT16*)memory)[0x80]=0xe107; compare(1,true);
  m_pc=0x100; ((UINT16*)memory)[0x80]=0xe10b; compare(1,true); CHECK(m_r[1]==11);
  CHECK(irq_cases > 0 && timer_cases > 0);
- puts("PASS 3200 randomized and 46 directed production-loop comparisons: full CPU/device state, RAM, cycles, delayed branches, IRQ, timers, stopped CPU and live opcode edits");
+ puts("PASS 3200 randomized and 146 directed production-loop comparisons: full CPU/device state, RAM, cycles, delayed branches, IRQ, timers, stopped CPU and live opcode edits");
  return 0;
 }
