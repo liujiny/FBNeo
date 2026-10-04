@@ -17,6 +17,8 @@ A first experimental implementation supplied during model handoff had duplicate 
 - Every benchmark run has identical per-frame video/audio hashes and final state within each game.
 - Both games: 3,000-frame 2/3-thread candidates match S; 2,400-frame lifecycle replays match S (reset300, save1200, load1600, audio-only1800-1899, thread changes700/1400/2100).
 
+- Mushisam: 2,400-frame lifecycle replay video/audio/state matches S.
+
 These results establish host correctness for the covered scenes and host speed improvement. PS4 frame-rate gain and full-speed gameplay require hardware validation. No automatic frame skipping or CPU downclocking was added. The newer-ROM sound issue remains deferred at the user's request.
 
 ## Bounded multicore observations

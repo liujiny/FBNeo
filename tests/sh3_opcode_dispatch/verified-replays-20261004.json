@@ -1,0 +1,78 @@
+{
+  "baseline_commit": "efb057ecb65ef9080ce135c37380ba0f911d3141",
+  "dispatch_commit": "2bf238614",
+  "diagnostic_commit": "26e256061",
+  "platform": "native Linux; PS4 validation pending",
+  "mapping": {
+    "opcodes": 65536,
+    "sanitizers": [
+      "address",
+      "undefined"
+    ],
+    "passed": true
+  },
+  "performance": [
+    {
+      "game": "ddpsdoj",
+      "baseline_ms": 5.1061,
+      "dispatch_ms": 4.00855,
+      "reduction_percent": 21.49487867452655,
+      "frame_audio_state_match": true,
+      "platform": "native Linux, not PS4 FPS"
+    },
+    {
+      "game": "ddpdfk",
+      "baseline_ms": 3.6795999999999998,
+      "dispatch_ms": 2.89,
+      "reduction_percent": 21.458854223285133,
+      "frame_audio_state_match": true,
+      "platform": "native Linux, not PS4 FPS"
+    }
+  ],
+  "replays": [
+    {
+      "game": "ddpdfk",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    }
+  ],
+  "mushisam_lifecycle_match": true,
+  "diagnostic_caps": {
+    "main_frames": 7200,
+    "worker_jobs": 7200,
+    "max_reports_each": 24,
+    "passed": true
+  },
+  "worker_lifecycle_6000_jobs": "ASan/UBSan pass"
+}
