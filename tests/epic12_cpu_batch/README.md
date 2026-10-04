@@ -1,8 +1,10 @@
 # EPIC12 CPU batch differential test
 
-Status on 2026-10-04: written and reviewed, **not compiled or executed**. The user
-requested source changes only. The commands below are for a later authorized
-validation step; their presence is not a test result.
+Status on 2026-10-04: **ASan/UBSan and scalar differential runs passed** after
+the user authorized compilation. ThreadSanitizer compiled but could not start
+on this host (`unexpected memory mapping`), including a non-PIE attempt. These
+results do not establish PS4 performance. Logs are outside this repository at
+`testbuild/x-ibara-logs`.
 
 ```sh
 python3 tests/epic12_cpu_batch/run.py --sanitizer address,undefined --output /tmp/epic12-batch-asan
@@ -33,7 +35,7 @@ Coverage includes:
   asynchronous list owner.
 
 Native equality and sanitizer success do not establish PS4 performance or full
-game correctness. Before packaging, run Ibara and other CV1000 games with the
-same inputs under W baseline and the candidate, including video/audio/state,
-reset/load/unload and 1/2/3-thread comparisons. Test the PS4 separately. The
-production fallback can be built with `FBNEO_EPIC12_CPU_BATCH=0`.
+game correctness. W/X replay comparisons also matched video/audio/state for
+Ibara, DDPSDOJ, DDPDFK and Mushisama, with lifecycle/thread changes and both
+Ibara output formats. Test busy scenes on PS4 separately. The production
+fallback can be built with `FBNEO_EPIC12_CPU_BATCH=0`.

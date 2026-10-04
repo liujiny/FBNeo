@@ -17,7 +17,7 @@ See PS4_V_VALIDATION.md for the last packaged baseline and native validation.
 Tests under tests/sh3_opcode_dispatch, sh3_stopped_timer, epic12_blit,
 epic12_screen_copy and console_replay provide the retained regression tools.
 
-The source-only Ibara/CV1000 CPU batching candidate is documented in
-[PS4_IBARA_CPU_BLITTER.md](PS4_IBARA_CPU_BLITTER.md). Its new
-`tests/epic12_cpu_batch` suite has not been compiled or run; keep that status
-separate from W/V baseline results.
+The Ibara/CV1000 CPU batching candidate and X package are documented in
+[PS4_IBARA_CPU_BLITTER.md](PS4_IBARA_CPU_BLITTER.md). Native differential,
+ASan/UBSan, game replay and PS4 build/package checks passed; actual PS4 gameplay
+and performance remain pending. Keep that status separate from W/V results.
