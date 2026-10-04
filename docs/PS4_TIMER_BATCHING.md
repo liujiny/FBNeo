@@ -1,5 +1,7 @@
 # PS4 V: callback-preserving SH3 timer batching
 
+> Update: user authorized building; cumulative V passed compiled unit/replay/PKG checks. See [V validation](PS4_V_VALIDATION.md). Earlier source-only statuses below are historical; PS4 hardware results remain pending.
+
 Baseline U: 9c230f51ee34dfb14ea6aa144513087ff6006fe2 (runtime built from e9ac4bef7).
 User hardware feedback: generally above 50 FPS, complex scenes still slow with
 audio stutter. A new host U profile still samples SH3 execution and scalar TMU

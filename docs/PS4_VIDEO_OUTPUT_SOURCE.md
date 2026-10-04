@@ -1,5 +1,7 @@
 # CV1000 video output optimization — uncompiled candidate
 
+> Update: user authorized building; cumulative V passed compiled unit/replay/PKG checks. See [V validation](PS4_V_VALIDATION.md). Earlier source-only statuses below are historical; PS4 hardware results remain pending.
+
 2026-10-04. User asked for another optimization round and explicitly broadened
 inspection beyond CPU to GPU and other parts of the pipeline. The no-build
 instruction remains active. No frontend, binary or package was changed.

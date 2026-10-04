@@ -1,5 +1,7 @@
 # PS4 additive blend candidate — source only
 
+> Update: user authorized building; cumulative V passed compiled unit/replay/PKG checks. See [V validation](PS4_V_VALIDATION.md). Earlier source-only statuses below are historical; PS4 hardware results remain pending.
+
 2026-10-04. User requested reading klog and another optimization round, while
 retaining the latest instruction to stop before compilation. No build or PKG
 was produced for this change. Parent 8d247f9b0 contains timer batching and

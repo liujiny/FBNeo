@@ -1,0 +1,160 @@
+{
+  "runtime_source": "e2389eb79ee2c5f1e0385217ad5f69ae63e8bcfb",
+  "baseline": "U/RAPS10018",
+  "units": {
+    "timer": {
+      "sanitizers": "ASan/UBSan",
+      "quotient_remainder_cases": 1200000,
+      "timer_steps_callback_traces": 320024,
+      "passed": true
+    },
+    "blend": {
+      "sanitizers": "ASan/UBSan",
+      "rounding_cases": 65536,
+      "packed_additions": 1000000,
+      "image_cases": 7048,
+      "simd_add_blocks": 10457,
+      "simd_zero_dest_blocks": 5086,
+      "passed": true
+    },
+    "screen": {
+      "sanitizers": "ASan/UBSan",
+      "row_cases": 2184,
+      "passed": true
+    }
+  },
+  "replay_comparisons": [
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-abba-1-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-abba-2-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-threads2",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-threads3",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-abba-1-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-abba-2-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-threads2",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-threads3",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    },
+    {
+      "game": "mushisam",
+      "label": "mushisam-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    }
+  ],
+  "depth32_replays": [
+    {
+      "game": "ddpsdoj",
+      "variant": "U",
+      "depth": 32,
+      "frames": 3000,
+      "threads": 3,
+      "hashes": "4f6230d17922c42b4e67ddcff03a8764b574c62c2e76d87f015e2506d7053566",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "depth": 32,
+      "frames": 3000,
+      "threads": 3,
+      "hashes": "4f6230d17922c42b4e67ddcff03a8764b574c62c2e76d87f015e2506d7053566",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "U",
+      "depth": 32,
+      "frames": 3000,
+      "threads": 3,
+      "hashes": "08555350c409586926c6d830fb2367162e538a9f839e41d4005bff9df98ca074",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "depth": 32,
+      "frames": 3000,
+      "threads": 3,
+      "hashes": "08555350c409586926c6d830fb2367162e538a9f839e41d4005bff9df98ca074",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    }
+  ],
+  "native_performance": [
+    {
+      "game": "ddpsdoj",
+      "baseline_ms": 3.83495,
+      "candidate_ms": 3.66735,
+      "reduction_percent": 4.370330773543336,
+      "platform": "Native Linux; not PS4 FPS"
+    },
+    {
+      "game": "ddpdfk",
+      "baseline_ms": 2.8873,
+      "candidate_ms": 2.6182,
+      "reduction_percent": 9.320126069338148,
+      "platform": "Native Linux; not PS4 FPS"
+    }
+  ],
+  "hardware": "Pending, native replay does not establish PS4 speed or whole-console stability"
+}
