@@ -109,10 +109,19 @@ Five lifecycle game/depth runs again matched Y (Ibara16/32, DDPSDOJ, DDPDFK,
 Mushisam), including reset, state reload, audio-only and render-thread changes.
 PS4 CPU compilation and a mixed-object link probe passed; that probe is not a
 packaged core. The user subsequently requested a full PS4 build and PKG.
-Evidence is in `testbuild/jit-regions-logs`; packaging evidence will be in
+Evidence is in `testbuild/jit-regions-logs`; packaging evidence is in
 `testbuild/ab-jit-pkg-logs`. Native execution on the console remains untested.
 The source default remains off; the experimental AB package explicitly builds
 with `FBNEO_SH3_X64_JIT=1`.
+
+AB was built from code commit `46f0a06ea9b97261a2680a4f149797ec6af71e1c`:
+`RetroArch_PS4_AB_SH3JIT_Audio_RAPS10025.pkg`, 179240960 bytes, SHA256
+`a517adb7d9e38639f1332d58037d137a9d3204e426b2c6ada85d939a1edec9b0`.
+Title RAPS10025, Content UP0001-RAPS10025_00-0000000000000001. The full clean
+build produced 1140 FreeBSD AMD64 objects; 32 PKG validation checks and 18
+extracted payload hashes passed. The Z frontend (`f26f487ecd`) and other
+cores/resources are byte-identical to the archived Z payload. The only new
+import relative to Y is libkernel's `mprotect`. Console testing is pending.
 
 ## Historical first-stage result (2026-10-04)
 
