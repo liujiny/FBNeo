@@ -41,6 +41,16 @@ Redistributions may not be sold, nor may they be used in a commercial product or
 #define COMBINE_DATA(varptr)		(*(varptr) = (*(varptr) & ~mem_mask) | (data & mem_mask))
 
 static void init_opcode_dispatch(void);
+// Experimental native backend. Explicit opt-in until PS4 execution is verified.
+#ifndef FBNEO_SH3_X64_JIT
+#define FBNEO_SH3_X64_JIT 0
+#endif
+#if FBNEO_SH3_X64_JIT
+#if !defined(__x86_64__) || defined(_WIN32) || !defined(LSB_FIRST)
+#error SH3 x64 JIT requires the little-endian SysV AMD64 ABI
+#endif
+static void sh3_x64_exit();
+#endif
 #ifndef FBNEO_SH3_THREADED_DISPATCH
 #if (defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)) && (defined(__GNUC__) || defined(__clang__))
 #define FBNEO_SH3_THREADED_DISPATCH 1
@@ -959,6 +969,9 @@ void Sh3Init(INT32 num, INT32 hz, char md0, char md1, char md2, char md3, char m
 
 void Sh3Exit()
 {
+#if FBNEO_SH3_X64_JIT
+	sh3_x64_exit();
+#endif
 }
 
 void Sh3Open(const INT32 i)
@@ -4824,6 +4837,9 @@ static int Sh3Run_normal(int cycles)
 	return cycles;
 }
 
+#if FBNEO_SH3_X64_JIT
+#include "sh3_x64_jit.h"
+#endif
 #if FBNEO_SH3_THREADED_DISPATCH
 #include "sh3_threaded.h"
 #endif

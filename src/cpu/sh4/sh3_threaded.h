@@ -1,6 +1,7 @@
 // Direct-threaded SH3 interpreter. The original handlers and instruction
-// boundary ordering are shared with the reference loop. No guest code cache,
-// writable executable memory, CPU clock change or timer batching is involved.
+// boundary ordering are shared with the reference loop. The default path has
+// no guest code cache. FBNEO_SH3_X64_JIT optionally adds guarded native blocks;
+// CPU clocks and timer boundaries are unchanged.
 // GNU labels-as-values keep common integer handlers inside the dispatch loop;
 // uncommon operations call the existing function-pointer interpreter.
 #ifndef FBNEO_SH3_THREADED_H
@@ -242,6 +243,9 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 	INT32 alu_left = 0;
 	UINT32 alu_pc = 0;
 	bool alu_active = false;
+#if FBNEO_SH3_X64_JIT
+	bool jit_entry = true;
+#endif
 	if (initialize) {
 		struct Entry { Sh3OpcodeHandler handler; void *label; };
 #define SH3_ENTRY(name) { name, &&op_##name },
@@ -287,7 +291,26 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 	if (m_sh4_icount <= 0) goto finished; \
 	SH3_FETCH(); \
 } while (0)
+#if FBNEO_SH3_X64_JIT
+#define SH3_JIT_BRANCH(name) do { \
+	if (name==BF || name==BFS || name==BRA || name==BRAF || name==BSR || name==BSRF \
+		|| name==BT || name==BTS || name==JMP || name==JSR || name==RTS) jit_entry=true; \
+} while (0)
+#define SH3_JIT_ALU_ALLOWED (!jit_entry)
+#define SH3_TRY_NATIVE() do { \
+	if (jit_entry && SliceTimers && !m_delay && !m_test_irq) { \
+		jit_entry = false; \
+		while (sh3_x64_run()) \
+			if (m_sh4_icount <= 0) goto finished; \
+	} \
+} while (0)
+#else
+#define SH3_JIT_BRANCH(name) do {} while (0)
+#define SH3_JIT_ALU_ALLOWED true
+#define SH3_TRY_NATIVE() do {} while (0)
+#endif
 #define SH3_FETCH() do { \
+	SH3_TRY_NATIVE(); \
 	if (!SliceTimers) timer_start = sh3_total_cycles; \
 	if (m_delay) { \
 		opcode = sh3_cpu_readop16((UINT32)(m_delay & AM)); \
@@ -303,14 +326,14 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 
 fetch:
 	SH3_FETCH();
-#define SH3_EXECUTE(name) op_##name: SH3_COMMIT_ALU(); name(opcode); SH3_NEXT();
+#define SH3_EXECUTE(name) op_##name: SH3_COMMIT_ALU(); name(opcode); SH3_JIT_BRANCH(name); SH3_NEXT();
 	SH3_OTHER_OPS(SH3_EXECUTE)
 #undef SH3_EXECUTE
 	// Slice timers advance only at the existing run boundary. Without a
 	// pending IRQ, these one-cycle register operations cannot make an IRQ
 	// visible between themselves. Memory, branches and fallback commit first.
 #define SH3_EXECUTE_ALU(name) op_##name: \
-	if (FBNEO_SH3_ALU_RUNS && SliceTimers && !m_test_irq) { \
+	if (FBNEO_SH3_ALU_RUNS && SliceTimers && !m_test_irq && SH3_JIT_ALU_ALLOWED) { \
 		if (!alu_active) { alu_pc = m_pc; alu_left = m_sh4_icount; alu_active = true; } \
 		name(opcode); \
 		if (--alu_left <= 0) goto finished; \
@@ -332,6 +355,9 @@ finished:
 	m_sh4_icount = 0;
 	return cycles;
 #undef SH3_COMMIT_ALU
+#undef SH3_TRY_NATIVE
+#undef SH3_JIT_BRANCH
+#undef SH3_JIT_ALU_ALLOWED
 #undef SH3_FETCH
 #undef SH3_NEXT
 }
