@@ -248,6 +248,12 @@ struct sh4_dtimer
 	INT32 retrig;
 	void (*timer_exec)(int);
 
+#if defined(__x86_64__)
+	// Derived host-only division cache; not part of emulated/save-state data.
+	UINT32 prescale_divisor;
+	UINT64 prescale_reciprocal;
+#endif
+
 	void scan() {
 		SCAN_VAR(running);
 		SCAN_VAR(time_trig);
@@ -278,10 +284,37 @@ struct sh4_dtimer
 		timer_param = tparam;
 		timer_exec = callback;
 		timer_prescaler = 1 * ratio_multi;
+#if defined(__x86_64__)
+		prescale_divisor = 0;
+		prescale_reciprocal = 0;
+#endif
 	}
 
 	void set_prescaler(INT32 prescale) {
 		timer_prescaler = prescale;
+	}
+
+	// Exact unsigned division for a nonzero prescaler. For n < 2^32 and
+	// r = floor(2^32 / d), floor(n*r / 2^32) is at most one below n/d.
+	// The remainder comparison corrects that one-unit error without a divide.
+	// Validate the divisor lazily so callback changes and restored save states
+	// cannot reuse a reciprocal for another prescaler. No new scanned fields.
+	template<bool Remainder>
+	UINT32 divide_prescale(UINT32 value) {
+		const UINT32 divisor = (UINT32)timer_prescaler;
+#if defined(__x86_64__)
+		if (prescale_divisor != divisor) {
+			prescale_reciprocal = ((UINT64)1 << 32) / divisor;
+			prescale_divisor = divisor;
+		}
+		const UINT32 quotient = (UINT32)(((UINT64)value * prescale_reciprocal) >> 32);
+		const UINT32 remainder = value - quotient * divisor;
+		if (Remainder) return remainder >= divisor ? remainder - divisor : remainder;
+		return quotient + (remainder >= divisor);
+#else
+		// Keep the existing division on targets where 64-bit multiply can be costly.
+		return Remainder ? value % divisor : value / divisor;
+#endif
 	}
 
 	void run_prescale(INT32 cyc) {
@@ -292,7 +325,7 @@ struct sh4_dtimer
 				// Most short runs cross only one divider tick; avoid a divide.
 				prescale_counter -= timer_prescaler;
 				if (prescale_counter >= (UINT32)timer_prescaler)
-					prescale_counter %= (UINT32)timer_prescaler;
+					prescale_counter = divide_prescale<true>(prescale_counter);
 				return;
 			}
 
@@ -302,7 +335,7 @@ struct sh4_dtimer
 			// The subtraction test avoids division for zero/one available tick.
 			if (running && timer_prescaler > 0 && time_current < time_trig &&
 				prescale_counter - (UINT32)timer_prescaler >= (UINT32)timer_prescaler) {
-				UINT32 skip = prescale_counter / (UINT32)timer_prescaler;
+				UINT32 skip = divide_prescale<false>(prescale_counter);
 				UINT32 before_callback = time_trig - time_current - 1;
 				if (skip > before_callback) skip = before_callback;
 				if (skip) {

@@ -17,6 +17,7 @@ fixture = r"""
 #include <cstdio>
 typedef int32_t INT32;
 typedef uint32_t UINT32;
+typedef uint64_t UINT64;
 static int ratio_multi=100000, m_ratio=1;
 #define SCAN_VAR(x) ((void)(x))
 """+timer(old, 'Reference')+'\n'+timer(source, 'Candidate')+r"""
@@ -50,6 +51,22 @@ static void compare(const Reference &a,const Candidate &b) {
  assert(trace[0]==trace[1]);
 }
 int main() {
+ // Check the actual candidate helper after changing divisors directly, as a
+ // restored state or callback can do; no reliance on set_prescaler().
+ Candidate division={};
+ const uint32_t edge_divisors[]={1,2,3,4,7,31,32,33,65535,65536,65537,
+  100000,400000,1600000,6400000,25600000,102400000,0x7fffffff,0x80000000,0xffffffff};
+ for(unsigned i=0;i<200000;i++) {
+  uint32_t d=i%2?edge_divisors[(i/2)%20]:(next()|1);
+  division.timer_prescaler=(int32_t)d;
+  const uint32_t values[]={0,1,d-1,d,0xffffffff,next()};
+  for(unsigned j=0;j<6;j++) {
+   uint32_t n=values[j];
+   assert(division.divide_prescale<false>(n)==n/d);
+   assert(division.divide_prescale<true>(n)==n%d);
+  }
+ }
+ puts("PASS: 1200000 cached reciprocal quotient/remainder cases");
  for(unsigned i=0;i<40000;i++) {
   Reference a={};Candidate b={};reference=&a;candidate=&b;
   calls[0]=calls[1]=0;trace[0]=trace[1]=0;mode=i%6;

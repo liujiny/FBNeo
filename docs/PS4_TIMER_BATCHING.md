@@ -65,3 +65,51 @@ The new klog connection did capture U/RAPS10018 DDPDFK windows. The console
 power-off association with klog remains unproven. Capture was reconnected once
 only after the user's explicit "你现在重连 我运行游戏" instruction; no automatic
 reconnect loop is authorized by that one-time request.
+
+## CPU follow-up: exact reciprocal division (source only)
+
+The user requested another CPU optimization round for frame rate, retaining
+"先不编译". The U host sample contains 841/2883 core samples in Sh3Run;
+timer work was one part of that loop, not the entire sampled cost. Previously
+compiled timer batching still used variable integer division for multi-tick
+runs. This follow-up replaces those quotient/remainder calculations on
+x86-64 with a cached reciprocal multiply and one correction. It does not
+change instruction dispatch, CPU clocks, timer granularity, tick accounting,
+callback order or emulated divider remainder.
+
+For unsigned 32-bit n and nonzero d, cache r = floor(2^32 / d). Then
+q0 = floor(n*r / 2^32) is either floor(n/d) or one less. Because r does not
+overestimate 2^32/d, q0*d <= n. Correct with `n-q0*d >= d`. The remainder
+specialization subtracts d once if needed, avoiding a second multiply to
+recover the remainder from the corrected quotient. Divisor 1 requires a
+33-bit reciprocal, so the cache and product use UINT64; the product stays
+strictly below 2^64 for every n in the uint32 domain.
+
+Two derived fields are initialized during timer config. Each use checks the
+current prescaler, so callbacks/direct restored field changes invalidate the
+cache without hooks in save/load or setters. Cache fields are not scanned.
+The existing call sites exclude divisor zero and preserve the original
+zero-divider behavior; this is not a change to that edge case. Non-x86-64
+platforms use the original native division/remainder, avoiding an unmeasured
+64-bit multiply cost on PowerPC or other 32-bit CPUs.
+
+Validation performed without compilation:
+
+- `python3 -B tests/sh3_stopped_timer/static_reciprocal.py`: 1,650,438
+  quotient/remainder comparisons and 100,000 callback-boundary skip checks.
+  Covers reduced-domain exhaustive input, full-width boundaries, actual TMU
+  divider sizes, signed-negative prescalers interpreted as unsigned, divisor
+  changes/reuse and overflow bounds. This is an integer model, not C++ timer
+  execution or complete callback-sequence validation.
+- Existing C++ timer differential test was extended with 1,200,000 helper
+  quotient/remainder cases; **not compiled or run**. Its earlier 320,024-step
+  callback trace pass applies to c711071c6, not this follow-up.
+- Source diff whitespace check passed. No new native/PS4 binary or PKG.
+
+Pending: actual helper and callback-trace ASan/UBSan tests; U/timer-only/
+reciprocal A/B replay including reset/load/2–3 threads; compiler assembly
+inspection; host and PS4 dense-scene measurements. Cache comparison, memory
+loads and changed struct layout can offset arithmetic savings, especially
+when divisors change often or multi-tick operations are rare. Keep only if
+measured improvement justifies it. The SSE2 candidates are also still
+uncompiled; test these logical changes separately before combining results.
