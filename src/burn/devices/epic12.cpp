@@ -294,6 +294,19 @@ typedef const void (*epic12_device_blitfunction)(
 #include "epic12_fast_blit.h"
 #endif
 
+#ifndef FBNEO_EPIC12_CPU_BATCH
+#if defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
+#define FBNEO_EPIC12_CPU_BATCH 1
+#else
+#define FBNEO_EPIC12_CPU_BATCH 0
+#endif
+#endif
+
+#if FBNEO_EPIC12_CPU_BATCH
+#include "epic12_cpu_batch.h"
+#include "epic12_upload.h"
+#endif
+
 
 static UINT8 *dips; // pointer to cv1k's dips
 
@@ -314,6 +327,9 @@ static void run_blitter_cb()
 void epic12_exit()
 {
 	thready.exit();
+#if FBNEO_EPIC12_CPU_BATCH
+	epic12_cpu_batch.exit();
+#endif
 
 	BurnFree(m_bitmaps);
 	BurnFree(m_ram16_copy);
@@ -326,6 +342,11 @@ void epic12_exit()
 
 void epic12_init(INT32 ram_size, UINT16 *ram, UINT8 *dippy)
 {
+#if FBNEO_EPIC12_CPU_BATCH
+	// Reinitialization must finish the previous list before replacing pointers
+	// visible to either its owner or its raster helpers.
+	thready.notify_wait();
+#endif
 	m_main_ramsize = ram_size;
 	m_main_rammask = ram_size - 1;
 
@@ -337,6 +358,9 @@ void epic12_init(INT32 ram_size, UINT16 *ram, UINT8 *dippy)
 
 	m_gfx_size = 0x2000 * 0x1000;
 	m_bitmaps = (UINT32*)BurnMalloc (m_gfx_size * 4);
+#if FBNEO_EPIC12_CPU_BATCH
+	epic12_cpu_batch.init(m_bitmaps);
+#endif
 
 	m_clip.set(0, 0x2000-1, 0, 0x1000-1);
 
@@ -398,6 +422,9 @@ void epic12_set_blitter_sleep_on_busy(INT32 busysleep_on)
 void epic12_reset()
 {
 	thready.notify_wait();
+#if FBNEO_EPIC12_CPU_BATCH
+	epic12_cpu_batch.invalidate_all();
+#endif
 	// cache table to avoid divides in blit code, also pre-clamped
 	int x,y;
 	for (y=0;y<0x40;y++)
@@ -473,6 +500,9 @@ static void gfx_upload_shadow_copy(UINT32 *addr)
 	const UINT32 dimx = (COPY_NEXT_WORD(addr) & 0x1fff) + 1;
 	const UINT32 dimy = (COPY_NEXT_WORD(addr) & 0x0fff) + 1;
 
+#if FBNEO_EPIC12_CPU_BATCH
+	epic12_copy_payload(m_ram16_copy, m_ram16, addr, m_main_rammask, dimx * dimy);
+#else
 	for (UINT32 y = 0; y < dimy; y++)
 	{
 		for (UINT32 x = 0; x < dimx; x++)
@@ -480,6 +510,7 @@ static void gfx_upload_shadow_copy(UINT32 *addr)
 			COPY_NEXT_WORD(addr);
 		}
 	}
+#endif
 
 	// Time spent on uploads is mostly due to Main RAM accesses.
 	// The Blitter will send BREQ requests to the SH-3, to access Main RAM
@@ -496,7 +527,7 @@ static void gfx_upload_shadow_copy(UINT32 *addr)
 
 static void gfx_upload(UINT32 *addr)
 {
-	UINT32 x,y, dst_p,dst_x_start,dst_y_start, dimx,dimy;
+	UINT32 y, dst_p,dst_x_start,dst_y_start, dimx,dimy;
 	UINT32 *dst;
 
 	// 0x20000000
@@ -517,6 +548,12 @@ static void gfx_upload(UINT32 *addr)
 	dimx = (READ_NEXT_WORD(addr) & 0x1fff) + 1;
 	dimy = (READ_NEXT_WORD(addr) & 0x0fff) + 1;
 
+#if FBNEO_EPIC12_CPU_BATCH
+	// Uploads can spill across a VRAM row. Out-of-range rectangles clear all
+	// cached pages, rather than pretending the write was a clipped draw.
+	epic12_cpu_batch.before_write(rectangle(dst_x_start, dst_x_start + dimx - 1,
+		dst_y_start, dst_y_start + dimy - 1));
+#endif
 
 	//bprintf(0, _T("GFX COPY: DST %02X,%02X,%03X DIM %02X,%03X\n"), dst_p,dst_x_start,dst_y_start, dimx,dimy);
 
@@ -527,7 +564,10 @@ static void gfx_upload(UINT32 *addr)
 
 		dst += dst_x_start;
 
-		for (x = 0; x < dimx; x++)
+#if FBNEO_EPIC12_CPU_BATCH
+		epic12_upload_row(dst, m_ram16_copy, addr, m_main_rammask, dimx);
+#else
+		for (UINT32 x = 0; x < dimx; x++)
 		{
 			UINT16 pendat = READ_NEXT_WORD(addr);
 			// real hw would upload the gfxword directly, but our VRAM is 32-bit, so convert it.
@@ -535,6 +575,7 @@ static void gfx_upload(UINT32 *addr)
 			*dst++ = ((pendat&0x8000)<<14) | ((pendat&0x7c00)<<9) | ((pendat&0x03e0)<<6) | ((pendat&0x001f)<<3);  // --t- ---- rrrr r--- gggg g--- bbbb b---  format
 			//dst[dst_x_start + x] = ((pendat&0x8000)<<14) | ((pendat&0x7c00)<<6) | ((pendat&0x03e0)<<3) | ((pendat&0x001f)<<0);  // --t- ---- ---r rrrr ---g gggg ---b bbbb  format
 		}
+#endif
 	}
 }
 
@@ -811,6 +852,13 @@ static void gfx_draw(UINT32 *addr)
 	if ((s_mode==0 && s_alpha==0x1f) && (d_mode==4 && d_alpha==0x1f))
 		blend = 0;
 
+#if FBNEO_EPIC12_CPU_BATCH
+	if (epic12_cpu_batch.submit(flipx, trans, blend, s_mode, d_mode, draw_params)) return;
+	// Unsupported blend modes, wrapped sources and overlapping copies execute
+	// in their original pixel order after draining every pending raster job.
+	epic12_cpu_batch.before_write(rectangle(MAX(x, m_clip.min_x), MIN(x + dimx - 1, m_clip.max_x),
+		MAX(y, m_clip.min_y), MIN(y + dimy - 1, m_clip.max_y)));
+#endif
 
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST) || defined(EPIC12_BLIT_TEST)
 	if (blend && s_mode == 0 && d_mode == 0) {
@@ -1021,6 +1069,9 @@ static void gfx_exec()
 		{
 			case 0x0000:
 			case 0xf000:
+#if FBNEO_EPIC12_CPU_BATCH
+				epic12_cpu_batch.flush();
+#endif
 				return;
 
 			case 0xc000:
@@ -1043,6 +1094,9 @@ static void gfx_exec()
 
 			default:
 				//popmessage("GFX op = %04X", data);
+#if FBNEO_EPIC12_CPU_BATCH
+				epic12_cpu_batch.flush();
+#endif
 				return;
 		}
 	}
@@ -1061,6 +1115,12 @@ static void gfx_exec_write(UINT32 data)
 		if (data & 1)
 		{
 			thready.notify_wait();
+#if FBNEO_EPIC12_CPU_BATCH
+			// Snapshot options while the ordered list owner is idle. Preserve
+			// synchronous startup, Thread Blitter Off and worker-failure fallback.
+			epic12_cpu_batch.begin(thready.available && thready.enabled && !thready.startup_frame
+				? nBurnRenderCores : 1);
+#endif
 
 			m_gfx_clip_x_shadowcopy = m_gfx_clip_x;
 			m_gfx_clip_y_shadowcopy = m_gfx_clip_y;
@@ -1276,6 +1336,11 @@ void epic12_blitter_write(UINT32 offset, UINT32 data)
 void epic12_scan(INT32 nAction, INT32 *pnMin)
 {
 	thready.notify_wait();
+#if FBNEO_EPIC12_CPU_BATCH
+	// Derived metadata is never serialized. A subsequent VRAM restore must
+	// not reuse transparency from the state that preceded the scan.
+	epic12_cpu_batch.invalidate_all();
+#endif
 	SCAN_VAR(m_gfx_addr);
 //	SCAN_VAR(m_gfx_addr_shadowcopy); // probably not needed!
 	SCAN_VAR(m_gfx_scroll_x);

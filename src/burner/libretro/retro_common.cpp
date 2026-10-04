@@ -224,7 +224,11 @@ static struct retro_core_option_v2_definition var_fbneo_render_cores = {
 #endif
 	"Software rendering cores",
 	NULL,
+#ifdef __PS4__
+	"Software drawing for supported Seibu SPI, Psikyo, PGM, Sega System 32 and CV1000 games. Select 1, 2 or 3 rendering threads. For CV1000, enable Thread Blitter to use additional drawing threads. Applies between frames.",
+#else
 	"Software drawing for supported Seibu SPI, Psikyo, PGM and Sega System 32 games. Select 1, 2 or 3 rendering threads. Applies between frames.",
+#endif
 	NULL, NULL,
 	{
 		{ "2", "2 cores (default)" },

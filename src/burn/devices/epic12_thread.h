@@ -1,6 +1,7 @@
 // CV1000 keeps the blit list in order: uploads and draws can read back earlier
-// results from the same VRAM. Run that list on one persistent physical core
-// while the main core emulates the SH3; do not split dependent commands.
+// results from the same VRAM. One persistent worker owns list order while the
+// main thread emulates SH3. PS4's CPU batch renderer may subdivide independent
+// pixel rows inside a list, joining its helpers before any dependency boundary.
 #if defined(_XBOX) || defined(__PS4__) || defined(FBNEO_RENDER_THREADS_TEST)
 #include "render_worker.h"
 #include "salvia_fbneo_diagnostics.h"
