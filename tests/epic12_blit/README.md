@@ -8,7 +8,7 @@ python3 tests/epic12_blit/run.py --toolchain-root /path/to/toolchain/root --outp
 ```
 
 The test checks every tint/alpha/source-component combination (65,536 cases),
-one million packed RGB saturated additions, and 6,024 complete image operations
+one million packed RGB saturated additions, and 6,536 complete image operations
 against the original EPIC12 functions. Image cases cover both axes of flipping,
 transparent and opaque modes, all alpha/tint ranges, clipping, source wrapping,
 overlapping source/destination VRAM and the accumulated emulated blitter delay.
@@ -27,3 +27,17 @@ to this executable; unused emulator dependencies are removed by the linker.
 
 The separate full-game regression uses private ROMs and checks video, audio and
 complete final state. QEMU timings do not measure Xbox 360 frame rates.
+
+## Pending SSE2 additive candidate (2026-10-04)
+
+The first 6,024 cases passed on U. Another 512 image cases now cover widths
+1..16, unaligned starts, scalar tails, identical/disjoint/shifted-overlapping
+VRAM and consecutive rows. The x86-64 test requires the SSE2 path to execute.
+These new C++ cases have NOT been compiled or run: the user requested no more
+compilation. PowerPC retains the scalar implementation.
+
+`python3 -B tests/epic12_blit/static_add4.py` runs only an integer model, without
+compiler invocation. It passed 143,360 pixel comparisons and 11,832 row/alias
+cases (44,288 modeled four-pixel blocks). This checks packed saturation, all
+transparency masks, spare bits, tails and shared-memory ordering; it cannot
+validate intrinsic lowering, actual C++ code, memory sanitizer behavior or speed.
