@@ -30,7 +30,7 @@ int main(){
   {{draw_sprite_f1_ti0_tr0_s0_d0,draw_sprite_f1_ti1_tr0_s0_d0},
    {draw_sprite_f1_ti0_tr1_s0_d0,draw_sprite_f1_ti1_tr1_s0_d0}}
  };
- for(int i=0;i<6536;i++){
+ for(int i=0;i<7048;i++){
   int w=1+rnd()%128,h=1+rnd()%32,dx=64+rnd()%128,dy=64+rnd()%32;
   int sx=256+rnd()%128,sy=32+rnd()%128,fx=i&1,fy=(i>>1)&1,tr=(i>>2)&1,ti=(i>>3)&1;
   int sa=rnd()%32,da=i%3?31:rnd()%32;
@@ -54,7 +54,7 @@ int main(){
    const int offsets[8]={-8,-4,-3,-1,0,1,3,8};
    int k=i-6024;w=1+(k&15);h=1+((k>>8)&1);
    dx=64+(k&3);dy=64;sx=dx+offsets[(k>>5)&7];sy=dy;
-   fx=fy=0;tr=(k>>4)&1;ti=1;sa=da=31;
+   fx=fy=0;tr=(k>>4)&1;ti=1;sa=31;da=(k&512)?0:31;
    tint.r=tint.g=tint.b=32;
   }
   for(int y=0;y<h;y++)for(int x=0;x<w;x++){
@@ -78,9 +78,9 @@ int main(){
    }
  }
 #if defined(__SSE2__) && defined(__x86_64__)
- if(!epic12_add4_blocks){puts("FAIL: SSE2 path was not exercised");return 6;}
- printf("PASS SSE2 path exercised: %u blocks\n",epic12_add4_blocks);
+ if(!epic12_add4_blocks || !epic12_copy4_blocks){puts("FAIL: SSE2 path was not exercised");return 6;}
+ printf("PASS SSE2 paths exercised: %u additive, %u zero-destination blocks\n",epic12_add4_blocks,epic12_copy4_blocks);
 #endif
- puts("PASS 6536 image cases: identity/adjacent tint-alpha, transparency, clipping, flips, source wrap, overlapping VRAM, SIMD tails and delay");
+ puts("PASS 7048 image cases: identity/adjacent tint-alpha, transparency, clipping, flips, source wrap, overlapping VRAM, SIMD tails and delay");
  free(ref);free(got);return 0;
 }

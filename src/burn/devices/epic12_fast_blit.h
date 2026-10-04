@@ -32,31 +32,38 @@ static inline UINT32 epic12_packed_add(UINT32 s, UINT32 d)
 #if defined(__SSE2__) && defined(__x86_64__)
 #ifdef EPIC12_BLIT_TEST
 static unsigned epic12_add4_blocks;
+static unsigned epic12_copy4_blocks;
 #endif
 
-// Call only for identity source/full destination alpha, forward rows, and
-// either identical or disjoint source/destination ranges within that row.
+// Call only for identity source, full/zero destination alpha, forward rows,
+// and either identical or disjoint source/destination ranges within that row.
 // Four loads before four stores must not bypass an overlapping VRAM dependency.
-template<bool Transparent>
-static inline void epic12_blend_add4(const UINT32 *in, UINT32 *out)
+template<bool Transparent, bool AddDestination>
+static inline void epic12_blend_identity4(const UINT32 *in, UINT32 *out)
 {
 	const __m128i pen = _mm_loadu_si128((const __m128i *)in);
 	const __m128i valid = _mm_srai_epi32(_mm_slli_epi32(pen, 2), 31);
 	if (Transparent && _mm_movemask_epi8(valid) == 0) return;
-	const __m128i destination = _mm_loadu_si128((const __m128i *)out);
 	const __m128i colour_mask = _mm_set1_epi32(0x00f8f8f8);
-	const __m128i sum = _mm_add_epi32(_mm_and_si128(pen, colour_mask),
-		_mm_and_si128(destination, colour_mask));
-	const __m128i carry = _mm_and_si128(sum, _mm_set1_epi32(0x01010100));
-	const __m128i saturated = _mm_and_si128(_mm_or_si128(sum,
-		_mm_sub_epi32(carry, _mm_srli_epi32(carry, 5))), colour_mask);
-	__m128i result = _mm_or_si128(saturated,
+	__m128i result = _mm_and_si128(pen, colour_mask);
+	__m128i destination = _mm_setzero_si128();
+	// Opaque zero-destination mode must not read the destination at all.
+	if (AddDestination || Transparent)
+		destination = _mm_loadu_si128((const __m128i *)out);
+	if (AddDestination) {
+		// Components are multiples of 8. Saturating at 255 then masking to
+		// 248 is exactly min(31, source5 + destination5) << 3 per byte.
+		result = _mm_and_si128(_mm_adds_epu8(result,
+			_mm_and_si128(destination, colour_mask)), colour_mask);
+	}
+	result = _mm_or_si128(result,
 		_mm_and_si128(pen, _mm_set1_epi32(0x20000000)));
 	if (Transparent) result = _mm_or_si128(_mm_and_si128(valid, result),
 		_mm_andnot_si128(valid, destination));
 	_mm_storeu_si128((__m128i *)out, result);
 #ifdef EPIC12_BLIT_TEST
-	++epic12_add4_blocks;
+	if (AddDestination) ++epic12_add4_blocks;
+	else ++epic12_copy4_blocks;
 #endif
 }
 #endif
@@ -93,7 +100,8 @@ static void epic12_blend_fixed(BLIT_PARAMS)
 		const UINT32 *in = gfx + (((src_y + yf * y) & 0x0fff) * 0x2000) + src_x + (FlipX ? -x0 : x0);
 		int x = x0;
 #if defined(__SSE2__) && defined(__x86_64__)
-		if (!FlipX && IdentitySource && DestinationMode == EPIC12_DEST_FULL && x1 - x0 >= 4) {
+		if (!FlipX && IdentitySource &&
+			(DestinationMode == EPIC12_DEST_FULL || DestinationMode == EPIC12_DEST_ZERO) && x1 - x0 >= 4) {
 			const uintptr_t src_address = (uintptr_t)in;
 			const uintptr_t dst_address = (uintptr_t)out;
 			const uintptr_t row_bytes = (uintptr_t)(x1 - x0) * sizeof(*out);
@@ -103,7 +111,7 @@ static void epic12_blend_fixed(BLIT_PARAMS)
 				src_address - dst_address : dst_address - src_address;
 			if (src_address == dst_address || distance >= row_bytes) {
 				for (; x + 4 <= x1; x += 4, in += 4, out += 4)
-					epic12_blend_add4<Transparent>(in, out);
+					epic12_blend_identity4<Transparent, DestinationMode == EPIC12_DEST_FULL>(in, out);
 			}
 		}
 #endif

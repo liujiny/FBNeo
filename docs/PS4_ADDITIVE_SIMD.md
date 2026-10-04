@@ -25,7 +25,7 @@ or an association with klog. Keep capture bounded and do not auto-reconnect.
 
 On x86-64 with SSE2, the existing fixed-alpha helper processes four pixels at
 a time only for forward rows, source alpha 31, identity tint (each channel
-31/32), and destination alpha 31. Packed saturation and source bit 29 match
+31/32), and destination alpha 31 or 0. Byte saturation and source bit 29 match
 the scalar formula. Transparent lanes preserve the full destination word;
 an entirely transparent block returns before destination access.
 
@@ -38,10 +38,10 @@ Clipping, source-wrap rejection and emulated blitter delay are unchanged.
 
 ## Validation and remaining work
 
-Pure Python integer modeling passed 143,360 pixel comparisons and 11,832
-shared-memory row cases, exercising 44,288 four-pixel blocks. This is not
-execution of the C++ or SSE2 code. The image test now has 6,536 cases, including
-512 new overlap/tail cases and an x86-64 SIMD coverage assertion.
+Pure Python integer modeling passed 286,720 pixel comparisons and 23,664
+shared-memory row cases, exercising 88,576 four-pixel blocks. This is not
+execution of the C++ or SSE2 code. The image test now has 7,048 cases, including
+1,024 new overlap/tail cases and an x86-64 SIMD coverage assertion.
 
 **Pending until compilation is authorized:** native ASan/UBSan image tests,
 full-game U/candidate replay and state/audio/video equivalence, lifecycle and
@@ -50,3 +50,24 @@ immutable S frontend/payload audit, PKG validation and hardware measurements.
 Use the original U baseline as well as timer-only V to isolate this change.
 Check sparse transparency/store bandwidth and code size; eligibility frequency
 and any speedup are currently unknown. Retain only if measurement supports it.
+
+## Second source-only round
+
+The previous four-pixel candidate (5b627bcab) used packed 32-bit addition with
+carry extraction, shifting and subtraction. The current helper uses unsigned
+byte-saturating addition instead: each masked component is `8*c`, so
+`min(255, 8*a + 8*b) & 248 == 8*min(31, a+b)`. Bytes are independent, and
+the source transparency bit is restored separately. This reduces the
+arithmetic dependency chain without changing 5-bit color rounding. Actual
+instruction count and performance still need compiler and hardware checks.
+
+The same guarded four-pixel helper now supports destination alpha zero.
+Opaque blocks only load source and write masked source color/bit 29;
+transparent blocks preserve inactive destination lanes and therefore still
+read destination. Fully transparent blocks skip destination accesses.
+Shifted overlapping rows remain scalar; no memcpy/memmove semantics replace
+the original sequential emulated-VRAM behavior.
+
+Both rounds are **uncompiled candidates**. Python results are algebra/order
+checks only, not renderer or game validation. The last installable package
+remains U. No new timer-only SELF, frontend, or package was created.
