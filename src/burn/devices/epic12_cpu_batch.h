@@ -42,6 +42,18 @@ class Epic12CpuBatch {
 	static rectangle destination_rect(const Command &c) {
 		return rectangle(c.x, c.x + c.w - 1, c.y, c.y + c.h - 1);
 	}
+	bool depends_on_batch(const rectangle &src, const rectangle &dst) const {
+		// Aggregate boxes reject the common case cheaply. Their empty gaps
+		// are not dependencies: only actual pending reads/writes need a join.
+		const bool raw = intersects(src, destinations);
+		const bool war = intersects(dst, sources);
+		if (!raw && !war) return false;
+		for (unsigned i = 0; i < count; ++i) {
+			if (raw && intersects(src, destination_rect(commands[i]))) return true;
+			if (war && intersects(dst, source_rect(commands[i]))) return true;
+		}
+		return false;
+	}
 	void draw_command(const Command &c, int first, int last) {
 		const int y0 = first > c.y ? first - c.y : 0;
 		const int y1 = last < c.y + c.h ? last - c.y : c.h;
@@ -190,7 +202,7 @@ public:
 			&& (c.tint.g == 31 || c.tint.g == 32) && (c.tint.b == 31 || c.tint.b == 32);
 		rectangle src = source_rect(c), dst = destination_rect(c);
 		if (intersects(src, dst)) return false; // preserve per-pixel overlap order
-		if (count == CAPACITY || (count && (intersects(src, destinations) || intersects(dst, sources)))) flush();
+		if (count == CAPACITY || (count && depends_on_batch(src, dst))) flush();
 		// Both RAW and WAR barriers are required: unlike a GPU atlas, these
 		// workers read live VRAM. WAW pairs retain their order in each row.
 		epic12_device_blit_delay += (UINT64)c.w * c.h;

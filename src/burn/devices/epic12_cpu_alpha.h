@@ -106,6 +106,17 @@ public:
 		// of nonresident pages after a large upload or software fallback.
 		const int x0 = r.min_x >> 5, x1 = r.max_x >> 5;
 		const int y0 = r.min_y >> 5, y1 = r.max_y >> 5;
+		// For a small write, probe only the affected sets. Large rectangles
+		// still scan residents, bounding work independently of upload area.
+		if ((x1 - x0 + 1) * (y1 - y0 + 1) < SETS) {
+			for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) {
+				const UINT32 tag = y * 256 + x;
+				Page *p = pages + set_for(tag) * WAYS;
+				for (unsigned i = 0; i < WAYS; ++i)
+					if (p[i].tag == tag) p[i].tag = ~0U;
+			}
+			return;
+		}
 		for (unsigned i = 0; i < SETS * WAYS; ++i) {
 			const UINT32 tag = pages[i].tag;
 			if (tag == ~0U) continue;

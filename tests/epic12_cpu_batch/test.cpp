@@ -268,6 +268,44 @@ static void command_lists() {
 	}
 }
 
+static void sparse_dependencies() {
+	for (int lanes = 1; lanes <= 3; ++lanes) {
+		configure(lanes);
+		Draw a; a.sx = 512; a.x = 0; a.w = 16; a.h = 256;
+		Draw b = a; b.sx = 1024; b.x = 256;
+		Draw gap = a; gap.sx = 128; gap.x = 768;
+		// The aggregate boxes intersect in both directions, but no actual
+		// source/destination pair overlaps. Repeated WAW draws remain ordered.
+		for (int i = 0; i < 100; ++i) {
+			draw(a); draw(b); draw(gap);
+		}
+		// Real dependencies must still join, including a one-pixel edge.
+		Draw raw = a; raw.sx = 15; raw.x = 1500; raw.w = 16; draw(raw);
+		Draw war = a; war.sx = 1600; war.x = 1039; war.w = 16; draw(war);
+		compare();
+	}
+}
+
+static void alpha_invalidations() {
+	Epic12CpuAlpha cache;
+	const rectangle regions[] = { rectangle(2048, 2048, 1024, 1024),
+		rectangle(2047, 2080, 1023, 1056), rectangle(2000, 2300, 1000, 1300),
+		rectangle(-1, 8192, 0, 4095) };
+	const rectangle tile(2048, 2079, 1024, 1055);
+	rectangle bounds;
+	for (unsigned i = 0; i < sizeof(regions) / sizeof(regions[0]); ++i) {
+		candidate[1024 * 8192 + 2048] = 0x20000000;
+		cache.clear(); CHECK(cache.trim(candidate, tile, bounds));
+		candidate[1024 * 8192 + 2048] = 0;
+		cache.invalidate(regions[i]); CHECK(!cache.trim(candidate, tile, bounds));
+		candidate[1024 * 8192 + 2048] = 0x20000000;
+		cache.invalidate(regions[i]); CHECK(cache.trim(candidate, tile, bounds));
+		CHECK(bounds.min_x == 2048 && bounds.max_x == 2048);
+		CHECK(bounds.min_y == 1024 && bounds.max_y == 1024);
+	}
+	candidate[1024 * 8192 + 2048] = reference[1024 * 8192 + 2048];
+}
+
 static void worker_lifetimes() {
 	Draw large; large.w = 320; large.h = 240;
 	for (int lanes = 1; lanes <= 3; ++lanes) {
@@ -338,7 +376,7 @@ int main() {
 	m_bitmaps = candidate; epic12_cpu_batch.init(candidate);
 	uploads(); puts("PASS upload expansion, wrapping, payload copy and command timing");
 	small_simd_edges(); writes_and_dependencies(); random_lists();
-	capacity_and_row_balance(); command_lists();
+	capacity_and_row_balance(); command_lists(); sparse_dependencies(); alpha_invalidations();
 	puts("PASS legacy-rasterizer differential: pixels, delay, dependencies and parser barriers");
 	worker_lifetimes(); epic12_cpu_batch.exit();
 	puts("PASS helper creation/failure, ordered owner, reinit, option changes and cache reset");
