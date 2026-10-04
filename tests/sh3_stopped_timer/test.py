@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare production SH3 timer code to the pre-optimization implementation."""
+"""Compare stopped and running SH3 timers to the original scalar implementation."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,9 +23,17 @@ static int ratio_multi=100000, m_ratio=1;
 static Reference *reference;
 static Candidate *candidate;
 static unsigned calls[2], mode;
+static uint64_t trace[2];
 static uint32_t rng=0x859173;
 static uint32_t next() { rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
 template<class T> void callback(T *t, unsigned slot, int param) {
+ // Capture state at each callback, not just its final count. In particular,
+ // batching must leave the same divider remainder visible to the callback.
+ const uint32_t fields[]={t->prescale_counter,t->time_current,t->time_trig,
+                         (uint32_t)t->timer_prescaler,(uint32_t)t->running,
+                         (uint32_t)t->retrig,(uint32_t)param};
+ for(unsigned k=0;k<sizeof(fields)/sizeof(fields[0]);k++)
+  trace[slot]=(trace[slot]^fields[k])*UINT64_C(1099511628211);
  unsigned n=++calls[slot];
  if(mode==0) t->stop();
  if(mode==1) t->set_prescaler(50+(n*31)%2000);
@@ -39,14 +47,18 @@ static void compare(const Reference &a,const Candidate &b) {
  assert(a.running==b.running && a.time_trig==b.time_trig && a.time_current==b.time_current);
  assert(a.timer_param==b.timer_param && a.timer_prescaler==b.timer_prescaler);
  assert(a.prescale_counter==b.prescale_counter && a.retrig==b.retrig && calls[0]==calls[1]);
+ assert(trace[0]==trace[1]);
 }
 int main() {
- for(unsigned i=0;i<20000;i++) {
+ for(unsigned i=0;i<40000;i++) {
   Reference a={};Candidate b={};reference=&a;candidate=&b;
-  calls[0]=calls[1]=0;mode=i%6;
+  calls[0]=calls[1]=0;trace[0]=trace[1]=0;mode=i%6;
   a.running=b.running=next()%2;
   a.time_trig=b.time_trig=1+next()%1500;
   a.time_current=b.time_current=next()%1600;
+  if(i%11==0) a.time_current=b.time_current=UINT32_MAX-next()%3;
+  if(i%13==0) a.time_trig=b.time_trig=0;
+  if(i%17==0) a.time_trig=b.time_trig=UINT32_MAX;
   a.timer_param=b.timer_param=next()%3;
   a.timer_prescaler=b.timer_prescaler=50+next()%2000;
   a.prescale_counter=b.prescale_counter=next();
@@ -60,7 +72,20 @@ int main() {
    a.run_prescale(cycles);b.run_prescale(cycles);compare(a,b);
   }
  }
- puts("PASS: 160000 timer steps, free-running divider, unsigned wrap, callbacks changing prescaler/reset/rearm/stop");
+ // Defined edge cases: zero divider whose first callback repairs it, signed
+ // negative divider (legacy unsigned comparison), and absent callbacks.
+ for(unsigned i=0;i<24;i++) {
+  Reference a={};Candidate b={};reference=&a;candidate=&b;
+  calls[0]=calls[1]=0;trace[0]=trace[1]=0;mode=1;m_ratio=1;
+  a.running=b.running=1;a.retrig=b.retrig=1;
+  a.time_trig=b.time_trig=1;
+  a.timer_prescaler=b.timer_prescaler=i%3==0?0:(i%3==1?-1:4);
+  a.prescale_counter=b.prescale_counter=i%3==1?UINT32_MAX:123;
+  a.timer_exec=ref_cb;b.timer_exec=opt_cb;
+  if(i%3==2) a.timer_exec=b.timer_exec=NULL;
+  a.run_prescale(0);b.run_prescale(0);compare(a,b);
+ }
+ puts("PASS: 320024 timer steps and callback-state traces; trigger/wrap boundaries, prescaler/reset/rearm/stop callbacks, null callback, zero/negative divider edges");
 }
 """
 with tempfile.TemporaryDirectory() as d:

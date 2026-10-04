@@ -289,14 +289,29 @@ struct sh4_dtimer
 		while (prescale_counter >= timer_prescaler) {
 			// A stopped timer has no callbacks, but its divider keeps running.
 			if (!running && timer_prescaler != 0) {
-				prescale_counter %= (UINT32)timer_prescaler;
+				// Most short runs cross only one divider tick; avoid a divide.
+				prescale_counter -= timer_prescaler;
+				if (prescale_counter >= (UINT32)timer_prescaler)
+					prescale_counter %= (UINT32)timer_prescaler;
 				return;
 			}
-			prescale_counter -= timer_prescaler;
 
-			// note: we can't optimize this, f.ex:
-			//run(prescale_counter / timer_prescaler); prescale_counter %= timer_prescaler;
-			// why? when the timer hits, the prescaler can & will change.
+			// Collapse only ticks strictly BEFORE the next callback. A callback
+			// can reset/rearm the timer or change its prescaler, so the firing
+			// tick below remains scalar and all fields are re-read afterwards.
+			// The subtraction test avoids division for zero/one available tick.
+			if (running && timer_prescaler > 0 && time_current < time_trig &&
+				prescale_counter - (UINT32)timer_prescaler >= (UINT32)timer_prescaler) {
+				UINT32 skip = prescale_counter / (UINT32)timer_prescaler;
+				UINT32 before_callback = time_trig - time_current - 1;
+				if (skip > before_callback) skip = before_callback;
+				if (skip) {
+					time_current += skip;
+					prescale_counter -= skip * (UINT32)timer_prescaler;
+					continue;
+				}
+			}
+			prescale_counter -= timer_prescaler;
 
 			// note2:
 			//run(1);  this is just the contents of run(1) from below

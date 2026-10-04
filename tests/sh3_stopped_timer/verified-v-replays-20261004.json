@@ -1,0 +1,306 @@
+{
+  "baseline": "9c230f51ee34dfb14ea6aa144513087ff6006fe2",
+  "runtime_change": "SH3 callback-free prefix batching and stopped single-tick subtraction",
+  "platform": "native Linux, not PS4 FPS",
+  "timer_test": {
+    "steps": 320024,
+    "callback_state_traces": true,
+    "asan_ubsan": true
+  },
+  "performance": [
+    {
+      "game": "ddpsdoj",
+      "baseline_ms": 3.6566,
+      "candidate_ms": 3.6218500000000002,
+      "reduction_percent": 0.9503363780561133,
+      "platform": "Native Linux; not PS4 FPS"
+    },
+    {
+      "game": "ddpdfk",
+      "baseline_ms": 2.8308999999999997,
+      "candidate_ms": 2.63445,
+      "reduction_percent": 6.939489208378946,
+      "platform": "Native Linux; not PS4 FPS"
+    }
+  ],
+  "comparisons": [
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-abba-1-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-abba-2-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-threads2",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-threads3",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpsdoj",
+      "label": "ddpsdoj-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-abba-1-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-abba-2-V",
+      "threads": 1,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-threads2",
+      "threads": 2,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-threads3",
+      "threads": 3,
+      "lifecycle": 0,
+      "passed": true
+    },
+    {
+      "game": "ddpdfk",
+      "label": "ddpdfk-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    },
+    {
+      "game": "mushisam",
+      "label": "mushisam-V-lifecycle",
+      "threads": 2,
+      "lifecycle": 1,
+      "passed": true
+    }
+  ],
+  "runs": [
+    {
+      "game": "ddpsdoj",
+      "variant": "U",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-abba-0-U",
+      "core_ms": 3.6608,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-abba-1-V",
+      "core_ms": 3.6118,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-abba-2-V",
+      "core_ms": 3.6319,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "U",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-abba-3-U",
+      "core_ms": 3.6524,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "U",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-abba-0-U",
+      "core_ms": 2.8353,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-abba-1-V",
+      "core_ms": 2.5997,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-abba-2-V",
+      "core_ms": 2.6692,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "U",
+      "threads": 1,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-abba-3-U",
+      "core_ms": 2.8265,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "threads": 2,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-V-threads2",
+      "core_ms": 2.8952,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "threads": 3,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpsdoj-V-threads3",
+      "core_ms": 3.0636,
+      "hashes": "cb7c58df47b48e2f2fe6117928ad1d8f1d3ca35bcae6f6002e6ca4c275b209ff",
+      "state": "ba4a61ac5d557a7808cae09c1011193c75475f33b9e296fdfeff5a51c28e0b2b"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "U",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "ddpsdoj-U-lifecycle",
+      "core_ms": 3.225,
+      "hashes": "6c36fe570c7dce6da0c94a2ee082169784743094033c5fec1f65543a94c6a8d5",
+      "state": "2b4650d472eeacd45d07585c3b525ee612a935261c97510f56d604758236a4d9"
+    },
+    {
+      "game": "ddpsdoj",
+      "variant": "V",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "ddpsdoj-V-lifecycle",
+      "core_ms": 3.2262,
+      "hashes": "6c36fe570c7dce6da0c94a2ee082169784743094033c5fec1f65543a94c6a8d5",
+      "state": "2b4650d472eeacd45d07585c3b525ee612a935261c97510f56d604758236a4d9"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "threads": 2,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-V-threads2",
+      "core_ms": 2.2109,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "threads": 3,
+      "lifecycle": 0,
+      "frames": 3000,
+      "label": "ddpdfk-V-threads3",
+      "core_ms": 2.184,
+      "hashes": "9d7a6b999ebc39d582f7fa864be6ba76c3377bbd8c7f4e2a61d211a614f623e7",
+      "state": "4838a337617253014f824486ea4bf0f104df9ce38fcb4b6e39c4f9acdfba820b"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "U",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "ddpdfk-U-lifecycle",
+      "core_ms": 2.8058,
+      "hashes": "7173f40a829e3753fd2ed1a11f743c360134aa8a84d748ab4f13cda7ec60d12e",
+      "state": "21ae7c2cf6181a94f6db2ff27bf406ea397aae2ad13f02d946d30285ba53cba2"
+    },
+    {
+      "game": "ddpdfk",
+      "variant": "V",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "ddpdfk-V-lifecycle",
+      "core_ms": 2.8789,
+      "hashes": "7173f40a829e3753fd2ed1a11f743c360134aa8a84d748ab4f13cda7ec60d12e",
+      "state": "21ae7c2cf6181a94f6db2ff27bf406ea397aae2ad13f02d946d30285ba53cba2"
+    },
+    {
+      "game": "mushisam",
+      "variant": "U",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "mushisam-U-lifecycle",
+      "core_ms": 3.2141,
+      "hashes": "b9f06f330466b517c6f56c5e81998b22db2c710f6b94a31a6ddefcb02926fa49",
+      "state": "65d04fe3c7b74322db2ccff157e1fa89894c270b0d5b0ff214ad461dda03d085"
+    },
+    {
+      "game": "mushisam",
+      "variant": "V",
+      "threads": 2,
+      "lifecycle": 1,
+      "frames": 2400,
+      "label": "mushisam-V-lifecycle",
+      "core_ms": 3.062,
+      "hashes": "b9f06f330466b517c6f56c5e81998b22db2c710f6b94a31a6ddefcb02926fa49",
+      "state": "65d04fe3c7b74322db2ccff157e1fa89894c270b0d5b0ff214ad461dda03d085"
+    }
+  ],
+  "source_sha256": "97779133d9302aa9d14504f81f5d05b77832de0ae10678b7b9708c2f67f5c27a"
+}
