@@ -1526,6 +1526,24 @@ static inline void DIV0U(const UINT16 opcode)
  */
 static inline void DIV1(const UINT16 opcode)
 {
+#if defined(__x86_64__)
+ // One add/sub choice; carry/borrow and final Q/T need no branch tree.
+ // Aliased Rm must observe Rn after its initial shift.
+ const unsigned n=Rn,m=Rm;
+ const UINT32 sr=m_sr,sign=m_r[n]>>31;
+ const UINT32 shifted=(m_r[n]<<1)|(sr&T);
+ m_r[n]=shifted;
+ UINT32 value,carry;
+ if(((sr>>8)^(sr>>9))&1) {
+  value=shifted+m_r[m];carry=value<shifted;
+ } else {
+  value=shifted-m_r[m];carry=value>shifted;
+ }
+ const UINT32 sign_carry=sign^carry;
+ m_r[n]=value;
+ m_sr=(sr&~(Q|T))|((sign_carry^((sr>>9)&1))<<8)|(sign_carry^1);
+#else
+
 	UINT32 m = Rm; UINT32 n = Rn;
 
 	UINT32 tmp0;
@@ -1615,6 +1633,7 @@ static inline void DIV1(const UINT16 opcode)
 		m_sr |= T;
 	else
 		m_sr &= ~T;
+#endif
 }
 
 /*  DMULS.L Rm,Rn */

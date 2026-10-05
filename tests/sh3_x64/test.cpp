@@ -421,6 +421,120 @@ static void ram_run_random_cases() {
  MemMapR[3]=MemMapW[3]=memory;public_dispatch=false;Sh3SetJitEnabled(1);
  CHECK(sh3_ram_run_ops>before);printf("PASS randomized interpreter-only mixed RAM/ALU/branch/delay/callback cases=%u\n",cases);
 }
+static inline void DIV1_reference(const UINT16 opcode)
+{
+	UINT32 m = Rm; UINT32 n = Rn;
+
+	UINT32 tmp0;
+	UINT32 old_q;
+
+	old_q = m_sr & Q;
+	if (0x80000000 & m_r[n])
+		m_sr |= Q;
+	else
+		m_sr &= ~Q;
+
+	m_r[n] = (m_r[n] << 1) | (m_sr & T);
+
+	if (!old_q)
+	{
+		if (!(m_sr & M))
+		{
+			tmp0 = m_r[n];
+			m_r[n] -= m_r[m];
+			if(!(m_sr & Q))
+				if(m_r[n] > tmp0)
+					m_sr |= Q;
+				else
+					m_sr &= ~Q;
+			else
+				if(m_r[n] > tmp0)
+					m_sr &= ~Q;
+				else
+					m_sr |= Q;
+		}
+		else
+		{
+			tmp0 = m_r[n];
+			m_r[n] += m_r[m];
+			if(!(m_sr & Q))
+			{
+				if(m_r[n] < tmp0)
+					m_sr &= ~Q;
+				else
+					m_sr |= Q;
+			}
+			else
+			{
+				if(m_r[n] < tmp0)
+					m_sr |= Q;
+				else
+					m_sr &= ~Q;
+			}
+		}
+	}
+	else
+	{
+		if (!(m_sr & M))
+		{
+			tmp0 = m_r[n];
+			m_r[n] += m_r[m];
+			if(!(m_sr & Q))
+				if(m_r[n] < tmp0)
+					m_sr |= Q;
+				else
+					m_sr &= ~Q;
+			else
+				if(m_r[n] < tmp0)
+					m_sr &= ~Q;
+				else
+					m_sr |= Q;
+		}
+		else
+		{
+			tmp0 = m_r[n];
+			m_r[n] -= m_r[m];
+			if(!(m_sr & Q))
+				if(m_r[n] > tmp0)
+					m_sr &= ~Q;
+				else
+					m_sr |= Q;
+			else
+				if(m_r[n] > tmp0)
+					m_sr |= Q;
+				else
+					m_sr &= ~Q;
+		}
+	}
+
+	tmp0 = (m_sr & (Q | M));
+	if((!tmp0) || (tmp0 == 0x300)) /* if Q == M set T else clear T */
+		m_sr |= T;
+	else
+		m_sr &= ~T;
+}
+
+
+static void div1_oracle_case(UINT16 opcode,UINT32 sr,UINT32 a,UINT32 b) {
+ for(unsigned i=0;i<16;++i)m_r[i]=0x11223300+i;
+ m_r[(opcode>>8)&15]=a;m_r[(opcode>>4)&15]=b;m_sr=sr;
+ UINT32 initial[16],expected[16];memcpy(initial,m_r,sizeof(initial));
+ DIV1_reference(opcode);memcpy(expected,m_r,sizeof(expected));const UINT32 expected_sr=m_sr;
+ memcpy(m_r,initial,sizeof(initial));m_sr=sr;DIV1(opcode);
+ CHECK(m_sr==expected_sr);CHECK(!memcmp(m_r,expected,sizeof(expected)));
+}
+static void div1_oracle_cases() {
+ const UINT32 values[]={0,1,2,0x7fffffff,0x80000000U,0xfffffffeU,0xffffffffU,0x40000000,0xc0000000U};
+ unsigned cases=0;
+ for(unsigned n=0;n<16;++n)for(unsigned m=0;m<16;++m)for(unsigned bits=0;bits<8;++bits)
+  for(unsigned a=0;a<9;++a)for(unsigned b=0;b<9;++b) {
+   const UINT32 sr=(0xf00f00f0U&~(Q|M|T))|((bits&1)?T:0)|((bits&2)?Q:0)|((bits&4)?M:0);
+   div1_oracle_case((UINT16)(0x3004|(n<<8)|(m<<4)),sr,values[a],values[b]);++cases;
+  }
+ for(unsigned i=0;i<200000;++i){div1_oracle_case((UINT16)(0x3004|(random32()&0x0ff0)),random32(),random32(),random32());++cases;}
+ printf("PASS DIV1 original-handler oracle all register aliases/flags/edge/random cases=%u\n",cases);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -430,6 +544,8 @@ int main() {
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
  if(getenv("FBNEO_RAM_RANDOM_ONLY")){ram_run_random_cases();Sh3Exit();return 0;}
+ div1_oracle_cases();
+ if(getenv("FBNEO_DIV1_ONLY")){Sh3Exit();return 0;}
  runtime_option_cases();
  dt_cases();
  cold_guard_cases();
