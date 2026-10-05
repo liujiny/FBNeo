@@ -9,7 +9,7 @@ class Epic12CpuAlpha {
 	struct Page {
 		UINT32 tag, rows[ALPHA_PAGE_SIDE], groups[ALPHA_PAGE_SIDE / 8];
 		UINT32 keys[QUERIES], answers[QUERIES];
-		unsigned next_query;
+		unsigned next_query; UINT32 loaded_tiles;
 	};
 	Page pages[SETS * WAYS];
 	unsigned char next[SETS];
@@ -32,17 +32,7 @@ class Epic12CpuAlpha {
 		int n = 0; while (bits >>= 1) ++n; return n;
 #endif
 	}
-	Page &get(const UINT32 *vram, UINT32 tag) {
-		const unsigned set = set_for(tag);
-		Page *p = pages + set * WAYS;
-		for (unsigned i = 0; i < WAYS; ++i)
-			if (p[i].tag == tag) return p[i];
-		Page &page = p[next[set]++ & (WAYS - 1)];
-		page.tag = tag;
-		page.next_query = 0;
-		for (unsigned i = 0; i < QUERIES; ++i) page.keys[i] = ~0U;
-		const UINT32 *source = vram + (tag >> 8) * ALPHA_PAGE_SIDE * 8192
-			+ (tag & 255) * ALPHA_PAGE_SIDE;
+	static void fill_full(Page &page, const UINT32 *source) {
 		for (int y = 0; y < ALPHA_PAGE_SIDE; ++y) {
 			UINT32 bits = 0;
 #if defined(__SSE2__) && defined(__x86_64__)
@@ -58,9 +48,74 @@ class Epic12CpuAlpha {
 			else page.groups[y >> 3] |= bits;
 			source += 8192;
 		}
-		return page;
 	}
-	static bool bounds(Page &page, int x0, int y0, int x1, int y1, rectangle &out) {
+	Page &get(UINT32 tag) {
+		const unsigned set = set_for(tag);
+		Page *ways = pages + set * WAYS, *found = NULL;
+		for (unsigned i = 0; i < WAYS; ++i)
+			if (ways[i].tag == tag) { found = ways + i; break; }
+		if (!found) {
+			found = ways + (next[set]++ & (WAYS - 1));
+			found->tag = tag; found->next_query = 0; found->loaded_tiles = 0;
+			for (unsigned i = 0; i < QUERIES; ++i) found->keys[i] = ~0U;
+		}
+		return *found;
+	}
+	static void ensure(Page &page, const UINT32 *vram, int x0, int y0, int x1, int y1) {
+		if (page.loaded_tiles == 0xffU) return;
+		// Two bits per eight-row band, one bit per16x8 source tile.
+		const UINT32 columns = mask(x0 >> 4, x1 >> 4);
+		const UINT32 wanted = (columns * 0x55U)
+			& (0xffU << ((y0 >> 3) * 2))
+			& (0xffU >> ((3 - (y1 >> 3)) * 2));
+		const UINT32 missing = wanted & ~page.loaded_tiles;
+		if (!missing) return;
+		const UINT32 *source = vram + (page.tag >> 8) * ALPHA_PAGE_SIDE * 8192
+			+ (page.tag & 255) * ALPHA_PAGE_SIDE;
+		if (!page.loaded_tiles && wanted == 0xffU) {
+			fill_full(page, source); page.loaded_tiles = wanted; return;
+		}
+		if (!page.loaded_tiles) {
+			memset(page.rows, 0, sizeof(page.rows));
+			memset(page.groups, 0, sizeof(page.groups));
+		}
+		for (int group = 0; group < 4; ++group) {
+			const unsigned cols = (missing >> (group * 2)) & 3;
+			if (!cols) continue;
+			const UINT32 *row = source + group * 8 * 8192;
+			for (int dy = 0; dy < 8; ++dy, row += 8192) {
+				UINT32 bits = 0;
+				if (cols == 3) {
+#if defined(__SSE2__) && defined(__x86_64__)
+					for (int x = 0; x < 32; x += 4) {
+						const __m128i pen = _mm_loadu_si128((const __m128i *)(row + x));
+						bits |= (UINT32)_mm_movemask_ps(_mm_castsi128_ps(_mm_slli_epi32(pen, 2))) << x;
+					}
+#else
+					for (int x = 0; x < 32; ++x) bits |= ((row[x] >> 29) & 1U) << x;
+#endif
+				} else {
+					// A partial band has exactly one contiguous16-pixel half.
+					const int x = cols == 1 ? 0 : 16;
+#if defined(__SSE2__) && defined(__x86_64__)
+					UINT32 half_bits = 0;
+					for (int dx = 0; dx < 16; dx += 4) {
+						const __m128i pen = _mm_loadu_si128((const __m128i *)(row + x + dx));
+						half_bits |= (UINT32)_mm_movemask_ps(_mm_castsi128_ps(_mm_slli_epi32(pen, 2))) << dx;
+					}
+					bits = half_bits << x;
+#else
+					for (int dx = 0; dx < 16; ++dx) bits |= ((row[x + dx] >> 29) & 1U) << (x + dx);
+#endif
+				}
+				page.rows[group * 8 + dy] |= bits;
+				page.groups[group] |= bits;
+			}
+		}
+		page.loaded_tiles |= wanted;
+		return;
+	}
+	static bool bounds(Page &page, const UINT32 *vram, int x0, int y0, int x1, int y1, rectangle &out) {
 		const UINT32 key = x0 | (y0 << 5) | (x1 << 10) | (y1 << 15);
 		UINT32 answer = 0;
 		unsigned i;
@@ -69,6 +124,9 @@ class Epic12CpuAlpha {
 			break;
 		}
 		if (i == QUERIES) {
+			// A cached answer already covered every requested tile. Only a
+			// new query needs demand-fill checks; writes invalidate all keys.
+			ensure(page, vram, x0, y0, x1, y1);
 			const UINT32 selected = mask(x0, x1);
 			UINT32 columns = 0;
 			int top = ALPHA_PAGE_SIDE, bottom = 0;
@@ -136,7 +194,7 @@ public:
 				const int x1 = r.max_x < ox + 31 ? r.max_x - ox : 31;
 				const int y1 = r.max_y < oy + 31 ? r.max_y - oy : 31;
 				rectangle part;
-				if (!bounds(get(vram, py * 256 + px), x0, y0, x1, y1, part)) continue;
+				if (!bounds(get(py * 256 + px), vram, x0, y0, x1, y1, part)) continue;
 				part.min_x += ox; part.max_x += ox; part.min_y += oy; part.max_y += oy;
 				if (!found) { out = part; found = true; }
 				else {

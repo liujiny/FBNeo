@@ -339,6 +339,57 @@ static void alpha_invalidations() {
 	candidate[1024 * 8192 + 2048] = reference[1024 * 8192 + 2048];
 }
 
+static void alpha_brute_query(Epic12CpuAlpha &cache, const rectangle &query) {
+ rectangle got(17,23,19,27), expect(17,23,19,27);bool found=false;
+ for(int y=query.min_y;y<=query.max_y;++y)for(int x=query.min_x;x<=query.max_x;++x) {
+  if(!(candidate[y*8192+x]&0x20000000))continue;
+  if(!found){expect=rectangle(x,x,y,y);found=true;}
+  else {if(x<expect.min_x)expect.min_x=x;if(x>expect.max_x)expect.max_x=x;
+        if(y<expect.min_y)expect.min_y=y;if(y>expect.max_y)expect.max_y=y;}
+ }
+ CHECK(cache.trim(candidate,query,got)==found);
+ CHECK(got.min_x==expect.min_x && got.max_x==expect.max_x);
+ CHECK(got.min_y==expect.min_y && got.max_y==expect.max_y);
+}
+static void alpha_tile_queries() {
+ epic12_cpu_batch.flush();Epic12CpuAlpha cache;UINT32 seed=0x6ad03521U;unsigned cases=0;
+ const int bx=3072,by=2048,side=96;
+ for(int phase=0;phase<3;++phase) {
+  for(int y=0;y<side;++y)for(int x=0;x<side;++x) {
+   seed=seed*1664525U+1013904223U;
+   candidate[(by+y)*8192+bx+x]=(phase && (seed>>28)==0)?0x20000000:0;
+  }
+  candidate[(by+7)*8192+bx+8]=0x20000000;
+  candidate[(by+31)*8192+bx]=0x20000000;
+  candidate[by*8192+bx+31]=0x20000000;
+  cache.clear();
+  // Visit tiles out of order, then complete page/row groups and cached empties.
+  for(int t=0;t<144;++t) {
+   const int id=(t*53)%144,x=(id%12)*8,y=(id/12)*8;
+   alpha_brute_query(cache,rectangle(bx+x,bx+x+7,by+y,by+y+7));++cases;
+   alpha_brute_query(cache,rectangle(bx+x,bx+x,by+y,by+y));++cases;
+  }
+  for(int i=0;i<3000;++i) {
+   seed=seed*1664525U+1013904223U;int x=seed%side;
+   seed=seed*1664525U+1013904223U;int y=seed%side;
+   seed=seed*1664525U+1013904223U;int w=1+seed%48;if(w>side-x)w=side-x;
+   seed=seed*1664525U+1013904223U;int h=1+seed%48;if(h>side-y)h=side-y;
+   if(i%37==0){candidate[(by+y)*8192+bx+x]^=0x20000000;cache.invalidate(rectangle(bx+x,bx+x,by+y,by+y));}
+   if(i%211==0)cache.clear();
+   rectangle query(bx+x,bx+x+w-1,by+y,by+y+h-1);
+   alpha_brute_query(cache,query);alpha_brute_query(cache,query);cases+=2;
+   if(i%97==0) {
+    // Exercise replacement and return to the partial/complete page.
+    for(int page=0;page<160;++page){int px=(page%80)*32,py=3008+(page/80)*32;alpha_brute_query(cache,rectangle(px,px,py,py));++cases;}
+    alpha_brute_query(cache,query);++cases;
+   }
+  }
+ }
+ for(int y=0;y<side;++y)for(int x=0;x<side;++x)candidate[(by+y)*8192+bx+x]=reference[(by+y)*8192+bx+x];
+ epic12_cpu_batch.invalidate_all();
+ printf("PASS brute-force transparency query order/tiles/empty/edits/clear/eviction cases=%u\n",cases);
+}
+
 static void worker_lifetimes() {
 	Draw large; large.w = 320; large.h = 240;
 	for (int lanes = 1; lanes <= 3; ++lanes) {
@@ -410,7 +461,7 @@ int main() {
 	uploads(); puts("PASS upload expansion, wrapping, payload copy and command timing");
 	small_simd_edges();
 	constant_blend_edges(); writes_and_dependencies(); random_lists();
-	capacity_and_row_balance(); command_lists(); sparse_dependencies(); alpha_invalidations();
+	capacity_and_row_balance(); command_lists(); sparse_dependencies(); alpha_invalidations(); alpha_tile_queries();
 	puts("PASS legacy-rasterizer differential: pixels, delay, dependencies and parser barriers");
 	worker_lifetimes(); epic12_cpu_batch.exit();
 	puts("PASS helper creation/failure, ordered owner, reinit, option changes and cache reset");
