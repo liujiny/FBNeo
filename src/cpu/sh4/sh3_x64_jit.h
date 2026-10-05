@@ -284,22 +284,25 @@ struct Compiler {
 		unsigned exits[3], count=0;
 		// Special/internal addresses and unaligned operands use the original
 		// handler. No mapped host pointer is embedded in a generated block.
-		if(pc_relative) imm(0,(literal&AM)>>SH3_SHIFT);
-		else {
+		if(!pc_relative) {
 			immediate(7,13,0xe0000000); exits[count++]=jump(3);
 			if(width>1) {rex(0,13);byte(0xf7);byte(0xc5);word(width-1);exits[count++]=jump(5);}
 			rr(0x89,0,13);immediate(4,0,AM);shift(5,0,SH3_SHIFT);
 		}
-		byte(0x49);byte(0x8b);byte(0x1c);byte(0xc4); // rbx=[r12+rax*8]
+		if(pc_relative) {
+			// Constant page index, but reload the live map on every execution.
+			byte(0x49);byte(0x8b);byte(0x9c);byte(0x24);
+			word(((literal&AM)>>SH3_SHIFT)*8); // rbx=[r12+disp32]
+		} else {byte(0x49);byte(0x8b);byte(0x1c);byte(0xc4);} // rbx=[r12+rax*8]
 		byte(0x48);byte(0x83);byte(0xfb);byte(SH3_MAXHANDLER);exits[count++]=jump(2);
 		guard_exit(exits,count);
-		if(pc_relative) imm(0,literal&SH3_PAGEM);
-		else {rr(0x89,0,13);immediate(4,0,SH3_PAGEM);}
+		if(!pc_relative) {rr(0x89,0,13);immediate(4,0,SH3_PAGEM);}
 		if(width==1) immediate(6,0,1); // guest byte addressing is word-swapped
 		int d=reg(n,n==m && !pc_relative);
 		rex(d,3);
 		if(width<4) {byte(0x0f);byte(width==1?0xbe:0xbf);} else byte(0x8b);
-		byte(((d&7)<<3)|4);byte(3); // value=[rbx+rax]
+		if(pc_relative) {byte(0x80|((d&7)<<3)|3);word(literal&SH3_PAGEM);} // value=[rbx+disp32]
+		else {byte(((d&7)<<3)|4);byte(3);} // value=[rbx+rax]
 		if(width==4) shift(0,d,16);
 		changed(d);
 		if(post && n!=m) {immediate(0,s,width);changed(s);}
