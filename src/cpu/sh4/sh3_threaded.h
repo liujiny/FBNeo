@@ -271,6 +271,113 @@ static inline bool sh3_ram_run(UINT16 opcode, UINT32 next_pc, Sh3OpcodeHandler H
  return true;
 #endif
 }
+// Batch two live byte-loop patterns at a taken BFS, after its prefix has
+// executed normally. Preserve the pending branch/delay pair and every cycle.
+#ifdef FBNEO_SH3_JIT_TEST
+static unsigned long long sh3_byte_loop_calls, sh3_byte_loop_bytes;
+#endif
+static inline bool sh3_byte_ranges_overlap(uintptr_t a,uintptr_t ae,uintptr_t b,uintptr_t be) {
+ return a<be && b<ae;
+}
+__attribute__((noinline))
+static bool sh3_byte_loop(UINT16 opcode) {
+#ifndef WaitState
+ return false;
+#else
+ const bool copy=opcode==0x8ffb;
+ if((!copy && opcode!=0x8ffc) || (m_sr&T) || !m_pc)return false;
+ const unsigned iteration_cycles=copy?6:5;
+ if(m_sh4_icount<(int)(3+iteration_cycles))return false;
+ const UINT32 loop_pc=m_pc+2+(INT32)(INT8)opcode*2;
+ const unsigned words=copy?5:4;
+ const UINT32 code_phys=loop_pc&AM,code_off=code_phys&SH3_PAGEM;
+ if((loop_pc&1) || code_off+words*2>SH3_PAGEM+1)return false;
+ const UINT8 *fetch=MemMapF[code_phys>>SH3_SHIFT];
+ if((uintptr_t)fetch<SH3_MAXHANDLER)return false;
+ const UINT16 *code=(const UINT16*)(fetch+code_off);
+ const unsigned store_index=copy?1:0,dt_index=copy?2:1;
+ if((code[store_index]&0xf00f)!=0x2000 || (code[dt_index]&0xf0ff)!=0x4010 ||
+    code[dt_index+1]!=opcode || (code[words-1]&0xf0ff)!=0x7001)return false;
+ const unsigned dst=(code[store_index]>>8)&15,value=(code[store_index]>>4)&15;
+ const unsigned counter=(code[dt_index]>>8)&15;
+ if(((code[words-1]>>8)&15)!=dst || dst==counter || value==counter || value==dst)return false;
+ unsigned src=0;
+ if(copy) {
+  if((code[0]&0xf00f)!=0x6004 || ((code[0]>>8)&15)!=value)return false;
+  src=(code[0]>>4)&15;
+  if(src==dst || src==counter || src==value)return false;
+ }
+ // DT reads through READ, independently of FETCH, even without taking its
+ // busy-loop shortcut. A device/probe edit or 8bfd must retain that behavior.
+ const UINT32 probe_pc=loop_pc+(dt_index+1)*2;
+ if(probe_pc>=0xe0000000)return false;
+ const UINT32 probe_phys=probe_pc&AM;
+ const UINT8 *probe_page=MemMapR[probe_phys>>SH3_SHIFT];
+ if((uintptr_t)probe_page<SH3_MAXHANDLER)return false;
+ const UINT8 *probe=probe_page+(probe_phys&SH3_PAGEM);
+ if((uintptr_t)probe&1)return false;
+#if BUSY_LOOP_HACKS
+ if(*(const UINT16*)probe==0x8bfd)return false;
+#endif
+ const UINT32 dest=m_r[dst]+1; // the current BFS delay slot increments it
+ const UINT32 source=copy?m_r[src]:0;
+ if(dest>=0xe0000000 || (copy && source>=0xe0000000))return false;
+ const UINT32 dp=dest&AM,sp=source&AM;
+ UINT8 *write=MemMapW[dp>>SH3_SHIFT];
+ const UINT8 *read=copy?MemMapR[sp>>SH3_SHIFT]:NULL;
+ if((uintptr_t)write<SH3_MAXHANDLER || (copy && (uintptr_t)read<SH3_MAXHANDLER))return false;
+ const unsigned doff=dp&SH3_PAGEM,soff=sp&SH3_PAGEM;
+ unsigned count=(m_sh4_icount-3)/iteration_cycles;
+ if(m_r[counter] && count>m_r[counter])count=m_r[counter];
+ if(count>SH3_PAGEM+1-doff)count=SH3_PAGEM+1-doff;
+ if(copy && count>SH3_PAGEM+1-soff)count=SH3_PAGEM+1-soff;
+ if(!count)return false;
+ // Word-swapped bytes occupy the enclosing even-aligned host interval.
+ const uintptr_t dlo=(uintptr_t)(write+(doff&~1U)),dhi=(uintptr_t)(write+((doff+count+1)&~1U));
+ if(sh3_byte_ranges_overlap(dlo,dhi,(uintptr_t)code,(uintptr_t)code+words*2) ||
+    sh3_byte_ranges_overlap(dlo,dhi,(uintptr_t)probe,(uintptr_t)probe+2))return false;
+ if(copy) {
+  const uintptr_t slo=(uintptr_t)(read+(soff&~1U)),shi=(uintptr_t)(read+((soff+count+1)&~1U));
+  if(sh3_byte_ranges_overlap(dlo,dhi,slo,shi))return false;
+ }
+ UINT8 last=0;
+#ifdef LSB_FIRST
+ if(copy) {
+  last=read[(soff+count-1)^1];
+  if((soff^doff)&1) {
+   for(unsigned i=0;i<count;++i)write[(doff+i)^1]=read[(soff+i)^1];
+  } else {
+   unsigned i=0;
+   if(doff&1){write[doff^1]=read[soff^1];i=1;}
+   const unsigned pairs=(count-i)&~1U;
+   if(pairs)memcpy(write+doff+i,read+soff+i,pairs);
+   i+=pairs;if(i<count)write[(doff+i)^1]=read[(soff+i)^1];
+  }
+ } else {
+  const UINT8 byte=(UINT8)m_r[value];unsigned i=0;
+  if(doff&1){write[doff^1]=byte;i=1;}
+  const unsigned pairs=(count-i)&~1U;
+  if(pairs)memset(write+doff+i,byte,pairs);
+  i+=pairs;if(i<count)write[(doff+i)^1]=byte;
+ }
+#else
+ if(copy){last=read[soff+count-1];memcpy(write+doff,read+soff,count);}
+ else memset(write+doff,(UINT8)m_r[value],count);
+#endif
+ if(copy){m_r[src]+=count;m_r[value]=(UINT32)(INT32)(INT8)last;}
+ m_r[dst]=dest+count;m_r[counter]-=count;
+ const bool terminal=m_r[counter]==0;
+ m_sr=(m_sr&~T)|(terminal?T:0);
+ m_delay=0;m_pc=terminal?loop_pc+words*2:loop_pc;m_ppc=m_pc;
+ m_ea=terminal?dest+count-1:loop_pc;
+ const unsigned cycles=3+count*iteration_cycles-(terminal?1:0);EAT(cycles);
+#ifdef FBNEO_SH3_JIT_TEST
+ ++sh3_byte_loop_calls;sh3_byte_loop_bytes+=count;
+#endif
+ return true;
+#endif
+}
+
 template<bool SliceTimers, bool UseJit>
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((noinline, noclone))
@@ -369,6 +476,14 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 fetch:
 	SH3_FETCH();
 #define SH3_EXECUTE(name) op_##name: \
+ if(SliceTimers && UseJit && name==BFS && !m_test_irq) { \
+  SH3_COMMIT_ALU(); \
+  if((opcode==0x8ffb || opcode==0x8ffc) && !(m_sr&T) && m_sh4_icount>=8 && sh3_byte_loop(opcode)) { \
+   SH3_JIT_BRANCH(name); \
+   if(m_sh4_icount<=0)goto finished; \
+   goto fetch; \
+  } \
+ } \
  if(!UseJit && FBNEO_SH3_ALU_RUNS && SliceTimers && !m_test_irq \
   && (name==MOVLL4 || name==MOVLS4 || name==MOVLP || name==MOVLM || name==MOVLI) \
   && sh3_ram_run(opcode,alu_active?alu_pc:m_pc,name)) { \

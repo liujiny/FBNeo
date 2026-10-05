@@ -535,6 +535,112 @@ static void div1_oracle_cases() {
  printf("PASS DIV1 original-handler oracle all register aliases/flags/edge/random cases=%u\n",cases);
 }
 
+
+static UINT8 byte_io_read(UINT32 address) {
+ observations.push_back(address);observations.push_back(Sh3GetPC(-1));
+ observations.push_back(Sh3TotalCycles());Sh3BurnCycles(2);return (UINT8)address;
+}
+static void byte_io_write(UINT32 address,UINT8 value) {
+ observations.push_back(address);observations.push_back(value);observations.push_back(Sh3GetPC(-1));
+ observations.push_back(Sh3TotalCycles());Sh3BurnCycles(3);
+}
+static void byte_setup(bool copy,unsigned rotation,UINT32 pc=0x100) {
+ for(unsigned i=0;i<SH3_PAGE_COUNT;++i)MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
+ Sh3Reset();
+ for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+ for(unsigned i=0x2000;i<0x2100;++i)memory[i]=(UINT8)(i*47);
+ unsigned v=rotation,s=(rotation+5)&15,d=(rotation+4)&15,c=(rotation+6)&15;
+ UINT16 ops[7];unsigned n=0;
+ if(copy)ops[n++]=0x6004|(v<<8)|(s<<4);
+ ops[n++]=0x2000|(d<<8)|((copy?v:s)<<4);ops[n++]=0x4010|(c<<8);
+ ops[n++]=copy?0x8ffb:0x8ffc;ops[n++]=0x7001|(d<<8);ops[n++]=0x000b;ops[n++]=0x0009;
+ for(unsigned i=0;i<n;++i)((UINT16*)memory)[((pc+2*i)&65535)/2]=ops[i];
+ m_pc=pc;m_pr=0x800;m_sr=0;m_ea=0x12345678;
+ m_r[s]=0x2000;m_r[d]=0x4000;m_r[c]=32;
+}
+static void byte_loop_cases() {
+ public_dispatch=true;unsigned cases=0;
+ const int budgets[]={0,1,2,3,4,5,6,7,8,9,10,11,12,17,31,64,128,256};
+ const UINT32 counts[]={0,1,2,3,16,32,0xffffffff};
+ for(int copy=0;copy<2;++copy)for(int jit=0;jit<2;++jit)for(int mode=0;mode<2;++mode)
+ for(unsigned val=0;val<7;++val)for(unsigned b=0;b<18;++b)for(int parity=0;parity<4;++parity) {
+  byte_setup(copy,0);Sh3SetJitEnabled(jit);m_r[6]=counts[val];m_r[5]+=parity&1;m_r[4]+=(parity>>1);
+  const unsigned long long before=sh3_byte_loop_calls;
+  compare(budgets[b],mode);++cases;
+  if(!mode || !jit)CHECK(before==sh3_byte_loop_calls);
+  if(mode && jit && budgets[b]>=64 && counts[val]>=16)CHECK(sh3_byte_loop_calls>before);
+ }
+ for(int copy=0;copy<2;++copy)for(unsigned rot=0;rot<16;++rot)for(int entry=0;entry<4;++entry)
+ for(unsigned b=0;b<18;++b) {
+  byte_setup(copy,rot);Sh3SetJitEnabled(b&1);
+  if(entry) {m_pc=0x100+(copy?6:4);if(entry==2)m_sr|=T;
+   if(entry==3){m_delay=0x600;((UINT16*)memory)[0x300]=copy?0x8ffb:0x8ffc;m_pc+=2;}}
+  compare(budgets[b],true);++cases;
+ }
+ // Source/destination page ends and FETCH crossing a page; live map aliases.
+ for(int copy=0;copy<2;++copy)for(int which=0;which<6;++which)for(unsigned b=0;b<18;++b) {
+  byte_setup(copy,0,which==0?0xfffa:0x100);Sh3SetJitEnabled(b&1);
+  if(which==1)m_r[5]=0xfffd;if(which==2)m_r[4]=0xfffd;
+  if(which==3){m_r[4]=0x2001;m_r[5]=0x2000;}
+  if(which==4){m_r[4]=0x12001;m_r[5]=0x2000;}
+  if(which==5){m_r[4]=0xa0004000;m_r[5]=0xa0002000;}
+  compare(budgets[b],true);++cases;
+ }
+ // READ and FETCH can map different backing memory. DT must see READ.
+ check_write_page=true;
+ for(int copy=0;copy<2;++copy)for(int probe=0;probe<3;++probe)for(unsigned b=0;b<18;++b) {
+  byte_setup(copy,0);Sh3SetJitEnabled(b&1);memcpy(write_page,memory,sizeof(memory));
+  if(probe==0){MemMapR[0]=write_page;((UINT16*)write_page)[(0x100+(copy?6:4))/2]=0x8bfd;}
+  if(probe==1){Sh3MapHandler(1,0,65535,MAP_READ);Sh3SetReadWordHandler(1,dt_read);Sh3SetReadByteHandler(1,byte_io_read);dt_peek_value=0x0009;}
+  if(probe==2){MemMapR[0]=write_page;MemMapW[1]=write_page;m_r[4]=0x10103+(copy?2:0);}
+  const unsigned long long before=sh3_byte_loop_calls;
+  compare(budgets[b],true);++cases;
+  if(probe<2)CHECK(before==sh3_byte_loop_calls);
+ }
+ check_write_page=false;
+ for(int copy=0;copy<2;++copy)for(int io=0;io<2;++io)for(unsigned b=0;b<18;++b) {
+  byte_setup(copy,0);Sh3SetJitEnabled(b&1);
+  Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);
+  Sh3SetReadByteHandler(1,byte_io_read);Sh3SetWriteByteHandler(1,byte_io_write);
+  if(io==0)m_r[4]=0x30000;else m_r[5]=0x30000;
+  compare(budgets[b],true);++cases;
+ }
+
+ // At a taken branch, rejected guards must leave every scanned field and
+ // memory byte untouched. Include operand aliases and code/probe aliases.
+ for(int copy=0;copy<2;++copy)for(int kind=0;kind<13;++kind) {
+  byte_setup(copy,0);const unsigned branch=0x100+(copy?6:4);
+  m_pc=branch+2;m_ppc=m_pc;m_sh4_icount=256;
+  UINT16 *code=(UINT16*)(memory+0x100);
+  if(kind==0)m_sr|=T;
+  if(kind==1)m_sh4_icount=7;
+  if(kind==2)m_pc=0;
+  if(kind==3)code[copy?1:0]=0x2660; // dst=value=counter
+  if(kind==4)code[copy?1:0]=0x2460; // value=counter
+  if(kind==5)code[copy?1:0]=0x2440; // value=dst
+  if(kind==6)code[copy?4:3]=0x7501; // increment wrong register
+  if(kind==7){if(copy)code[0]=0x6055;else code[0]=0x2451;}
+  if(kind==8)m_r[4]=0x103; // upcoming writes overlap fetched code
+  if(kind==9)m_r[4]=0xe0001000;
+  if(kind==10)MemMapW[0]=(UINT8*)1;
+  if(kind==11)MemMapR[0]=(UINT8*)1;
+  if(kind==12){memcpy(write_page,memory,sizeof(memory));MemMapR[0]=write_page;
+   ((UINT16*)write_page)[branch/2]=0x8bfd;}
+  const std::vector<UINT8> before=save();memcpy(saved_memory,memory,sizeof(memory));
+  CHECK(!sh3_byte_loop(copy?0x8ffb:0x8ffc));CHECK(before==save());CHECK(!memcmp(saved_memory,memory,sizeof(memory)));++cases;
+ }
+ // A timer or pending IRQ uses its existing execution boundary, never an
+ // artificial byte-count budget. Include the exact taken/terminal edges.
+ for(int copy=0;copy<2;++copy)for(int kind=0;kind<3;++kind)for(int b=0;b<=130;++b) {
+  byte_setup(copy,0);Sh3SetJitEnabled(b&1);m_r[6]=17;
+  if(kind==0){sh4_exception_request(SH4_INTC_IRL2);m_test_irq=1;}
+  if(kind==1){m_timer[0].config(0,callback);m_timer[0].start(2,0,1,1);m_timer[0].timer_prescaler=ratio_multi;}
+  compare(b,true);++cases;
+ }
+ byte_setup(true,0);public_dispatch=false;Sh3SetJitEnabled(1);Sh3X64::release();
+ printf("PASS byte-loop budgets/parity/counts/registers/delays/pages/maps/probe/callback cases=%u fast=%llu bytes=%llu\n",cases,sh3_byte_loop_calls,sh3_byte_loop_bytes);
+}
+
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -544,6 +650,8 @@ int main() {
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
  if(getenv("FBNEO_RAM_RANDOM_ONLY")){ram_run_random_cases();Sh3Exit();return 0;}
+ byte_loop_cases();
+ if(getenv("FBNEO_BYTE_ONLY")){Sh3Exit();return 0;}
  div1_oracle_cases();
  if(getenv("FBNEO_DIV1_ONLY")){Sh3Exit();return 0;}
  runtime_option_cases();
