@@ -45,7 +45,19 @@ static inline bool same_opcodes(const UINT16 *a, const UINT16 *b, unsigned words
 		if (_mm_movemask_epi8(_mm_cmpeq_epi8(av, bv)) != 0xffff) return false;
 		a += 8; b += 8; words -= 8;
 	}
-	while (words--) if (*a++ != *b++) return false;
+    // Consume only the remaining checked words: no overlapping vector
+    // loads, no alignment assumptions, and no read across a guest page.
+    if (words & 4) {
+        UINT64 av, bv; __builtin_memcpy(&av, a, 8); __builtin_memcpy(&bv, b, 8);
+        if (av != bv) return false;
+        a += 4; b += 4;
+    }
+    if (words & 2) {
+        UINT32 av, bv; __builtin_memcpy(&av, a, 4); __builtin_memcpy(&bv, b, 4);
+        if (av != bv) return false;
+        a += 2; b += 2;
+    }
+    if ((words & 1) && *a != *b) return false;
 	return true;
 }
 
