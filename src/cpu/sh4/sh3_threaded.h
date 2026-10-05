@@ -229,6 +229,48 @@
 	OP(RTS) \
 	OP(STSPR)
 
+// A direct aligned RAM access cannot invoke a device or make an IRQ
+// visible. Preserve live maps/data and fall back before any guest mutation.
+#ifdef FBNEO_SH3_JIT_TEST
+static unsigned long long sh3_ram_run_ops;
+#endif
+static inline bool sh3_ram_run(UINT16 opcode, UINT32 next_pc, Sh3OpcodeHandler H) {
+#ifndef WaitState
+ return false; // If optional wait-state accounting becomes active, retain it.
+#else
+ const unsigned n=(opcode>>8)&15,m=(opcode>>4)&15;
+ const bool store=H==MOVLS4 || H==MOVLM;
+ UINT32 address=H==MOVLI?((next_pc+2)&~3)+(opcode&255)*4:
+  H==MOVLL4?m_r[m]+(opcode&15)*4:
+  H==MOVLS4?m_r[n]+(opcode&15)*4:
+  H==MOVLP?m_r[m]:m_r[n]-4;
+ if(address>=0xe0000000 || (address&3)) return false;
+ const UINT32 phys=address&AM;
+ UINT8 *page=(store?MemMapW:MemMapR)[phys>>SH3_SHIFT];
+ if((uintptr_t)page<SH3_MAXHANDLER) return false;
+ UINT32 *host=(UINT32*)(page+(phys&SH3_PAGEM));
+#ifdef FBNEO_SH3_JIT_TEST
+ ++sh3_ram_run_ops;
+#endif
+ if(H==MOVLL4 || H==MOVLS4 || H==MOVLI) m_ea=address;
+ if(store) {
+  UINT32 value=m_r[m]; // MOVLM aliases must read before decrementing Rn.
+  if(H==MOVLM) m_r[n]=address;
+#ifdef LSB_FIRST
+  value=(value<<16)|(value>>16);
+#endif
+  *host=value;
+ } else {
+  UINT32 value=*host;
+#ifdef LSB_FIRST
+  value=(value<<16)|(value>>16);
+#endif
+  m_r[n]=value;
+  if(H==MOVLP && n!=m) m_r[m]+=4;
+ }
+ return true;
+#endif
+}
 template<bool SliceTimers, bool UseJit>
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((noinline, noclone))
@@ -326,7 +368,15 @@ static int Sh3Run_threaded(int cycles, bool initialize)
 
 fetch:
 	SH3_FETCH();
-#define SH3_EXECUTE(name) op_##name: SH3_COMMIT_ALU(); name(opcode); SH3_JIT_BRANCH(name); SH3_NEXT();
+#define SH3_EXECUTE(name) op_##name: \
+ if(!UseJit && FBNEO_SH3_ALU_RUNS && SliceTimers && !m_test_irq \
+  && (name==MOVLL4 || name==MOVLS4 || name==MOVLP || name==MOVLM || name==MOVLI) \
+  && sh3_ram_run(opcode,alu_active?alu_pc:m_pc,name)) { \
+  if(!alu_active) {alu_pc=m_pc;alu_left=m_sh4_icount;alu_active=true;} \
+  if(--alu_left<=0) goto finished; \
+  opcode=sh3_cpu_readop16(alu_pc&AM);alu_pc+=2;goto *entries[opcode]; \
+ } \
+ SH3_COMMIT_ALU();name(opcode);SH3_JIT_BRANCH(name);SH3_NEXT();
 	SH3_OTHER_OPS(SH3_EXECUTE)
 #undef SH3_EXECUTE
 	// Slice timers advance only at the existing run boundary. Without a

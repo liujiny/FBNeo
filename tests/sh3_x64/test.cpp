@@ -365,6 +365,62 @@ static void arena_capacity_cases() {
  puts("PASS 8MiB arena boundary/recycle/stale-entry/edit/release");
 }
 
+static void ram_run_cases() {
+ const unsigned long long before=sh3_ram_run_ops;
+ const UINT16 ops[]={0x5120,0x1120,0x6126,0x2126,0xd120,0x5110,0x1110,0x6116,0x2116};
+ const UINT32 addr[]={0x4000,0x4001,0xfffc,0x10000,0xa0004000,0x30010};
+ unsigned cases=0;public_dispatch=true;
+ Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);Sh3SetReadLongHandler(1,io_read);Sh3SetWriteLongHandler(1,io_write);
+ for(unsigned op=0;op<9;++op) for(unsigned a=0;a<6;++a) for(int jit=0;jit<2;++jit)
+ for(int delayed=0;delayed<2;++delayed) for(int budget=0;budget<=40;++budget) {
+#if defined(__SANITIZE_ADDRESS__)
+  // The unchanged reference RL uses a typed unaligned dereference (UB).
+  // Exercise its x86 fallback separately in the non-sanitized suite.
+  if(addr[a]&3) continue;
+#endif
+  Sh3Reset();Sh3SetJitEnabled(jit);m_pc=0x400;m_sr=0;m_ea=0x76543210;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(int r=0;r<16;++r)m_r[r]=addr[a];
+  // A later handler write must observe the fully committed prefix.
+  m_r[15]=0x30010;
+  for(int i=0;i<64;++i)((UINT16*)memory)[0x200+i]=0x7201;
+  ((UINT16*)memory)[0x208]=ops[op];((UINT16*)memory)[0x209]=0x2f22;
+  if(delayed) {m_delay=0x410;m_pc=0x440;}
+  compare(budget,true);++cases;
+ }
+ // Pure RAM stores changing the following instruction must fetch it live.
+ for(int jit=0;jit<2;++jit) for(int alias=0;alias<3;++alias) for(int budget=1;budget<40;++budget) {
+  Sh3Reset();Sh3SetJitEnabled(jit);m_pc=0x400;m_sr=0;
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  m_r[1]=0x410+(alias==1?0x10000:alias==2?0xa0000000:0);m_r[2]=0xe5070009;
+  ((UINT16*)memory)[0x204]=0x1120;compare(budget,true);++cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;public_dispatch=false;Sh3SetJitEnabled(1);
+ CHECK(sh3_ram_run_ops>before);
+ printf("PASS RAM runs aligned/fallback/alias/callback/delay/selfmod/JIT modes=%u\n",cases);
+}
+static void ram_run_random_cases() {
+ public_dispatch=true;unsigned cases=0;const unsigned long long before=sh3_ram_run_ops;
+ Sh3MapHandler(1,0x30000,0x3ffff,MAP_READ|MAP_WRITE);Sh3SetWriteLongHandler(1,io_write);
+ for(int trial=0;trial<600;++trial) {
+  Sh3Reset();Sh3SetJitEnabled(0);m_pc=0x400;m_sr=random32();m_ea=random32();
+  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x0009;
+  for(unsigned i=0x3000/4;i<0x7000/4;++i)((UINT32*)memory)[i]=0x40000000;
+  for(int r=0;r<16;++r)m_r[r]=0x4000+16*r;m_r[15]=0x30010;
+  for(int i=0;i<512;++i) {
+   const unsigned n=random32()%8,m=random32()%8,disp=random32()%16;
+   const UINT16 ops[]={UINT16(0x5000|(n<<8)|(m<<4)|disp),UINT16(0x1000|(n<<8)|(m<<4)|disp),
+    UINT16(0x6006|(n<<8)|(m<<4)),UINT16(0x2006|(n<<8)|(m<<4)),UINT16(0x7004|(n<<8)),
+    UINT16(0x6003|(n<<8)|(m<<4)),UINT16(0x3000|(n<<8)|(m<<4)),0xde20,0x8b00,0x8900};
+   ((UINT16*)memory)[0x200+i]=ops[random32()%10];
+  }
+  ((UINT16*)memory)[0x200+128]=0x2f02;
+  if(trial&1){m_delay=0x400;m_pc=0x420;}
+  compare(1+random32()%511,true);++cases;
+ }
+ MemMapR[3]=MemMapW[3]=memory;public_dispatch=false;Sh3SetJitEnabled(1);
+ CHECK(sh3_ram_run_ops>before);printf("PASS randomized interpreter-only mixed RAM/ALU/branch/delay/callback cases=%u\n",cases);
+}
 int main() {
  opcode_validation_cases();
  Sh3Init(0,102400000,0,0,0,0,0,1,0,1,0);
@@ -373,6 +429,7 @@ int main() {
  // Mirror a bounded backing store across the guest map, so arbitrary branch
  // targets and memory operands remain valid without installing fake handlers.
  for(unsigned i=0;i<SH3_PAGE_COUNT;++i) MemMapR[i]=MemMapW[i]=MemMapF[i]=memory;
+ if(getenv("FBNEO_RAM_RANDOM_ONLY")){ram_run_random_cases();Sh3Exit();return 0;}
  runtime_option_cases();
  dt_cases();
  cold_guard_cases();
@@ -424,6 +481,8 @@ int main() {
 
  // Execute each translated opcode with all encoded register pairs, including
  // aliases, arbitrary values and SR bits. Native execution is mandatory.
+ ram_run_cases();
+ ram_run_random_cases();
  unsigned accepted=0;
  for(unsigned op=0;op<65536;++op) {
   Sh3X64::Compiler probe;
