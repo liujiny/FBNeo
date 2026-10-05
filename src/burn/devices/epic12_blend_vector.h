@@ -12,7 +12,7 @@ static inline __m128i epic12_div31_u16(__m128i product)
 }
 
 class Epic12BlendVector {
-	__m128i tint, sa, da;
+	__m128i tint, sa, da, sa_scaled, da_scaled;
 	bool untinted, source_full, source_zero, destination_full, destination_zero;
 
 	template<int Mode>
@@ -25,25 +25,29 @@ class Epic12BlendVector {
 	}
 	template<int Mode>
 	static __m128i contribution(__m128i value, __m128i s, __m128i d,
-		__m128i alpha_value, bool full, bool zero) {
+		__m128i alpha_value, __m128i alpha_scaled, bool full, bool zero) {
 		if (Mode == 0) {
 			if (full) return value;
 			if (zero) return _mm_setzero_si128();
-		}
+            // Fixed alpha is five bits. After the full/zero cases it is
+            // 1..30, so alpha*2115 fits unsigned16. Reassociate the exact
+            // reciprocal product without changing either rounding stage.
+            return _mm_mulhi_epu16(value, alpha_scaled);
+        }
 		return epic12_div31_u16(_mm_mullo_epi16(value, factor<Mode>(s, d, alpha_value)));
 	}
 	template<int SourceMode, int DestinationMode>
 	__m128i half(__m128i s, __m128i d) const {
 		const __m128i limit = _mm_set1_epi16(31);
 		if (!untinted) s = _mm_min_epi16(epic12_div31_u16(_mm_mullo_epi16(s, tint)), limit);
-		__m128i a = contribution<SourceMode>(s, s, d, sa, source_full, source_zero);
+		__m128i a = contribution<SourceMode>(s, s, d, sa, sa_scaled, source_full, source_zero);
 		if (DestinationMode == 2) {
 			// Match clr_add_with_clr_square: its green/blue
 			// terms use the red source contribution in the original renderer.
 			a = _mm_shufflelo_epi16(a, _MM_SHUFFLE(3, 2, 2, 2));
 			a = _mm_shufflehi_epi16(a, _MM_SHUFFLE(3, 2, 2, 2));
 		}
-		const __m128i b = contribution<DestinationMode>(d, s, d, da, destination_full, destination_zero);
+		const __m128i b = contribution<DestinationMode>(d, s, d, da, da_scaled, destination_full, destination_zero);
 		return _mm_min_epi16(_mm_add_epi16(a, b), limit);
 	}
 
@@ -51,6 +55,8 @@ public:
 	Epic12BlendVector(const clr_t &colour, unsigned source_alpha, unsigned destination_alpha)
 		: tint(_mm_set_epi16(0, colour.r, colour.g, colour.b, 0, colour.r, colour.g, colour.b)),
 		  sa(_mm_set1_epi16(source_alpha)), da(_mm_set1_epi16(destination_alpha)),
+          sa_scaled(_mm_set1_epi16(source_alpha * 2115U)),
+          da_scaled(_mm_set1_epi16(destination_alpha * 2115U)),
 		  untinted((colour.r == 31 || colour.r == 32) && (colour.g == 31 || colour.g == 32)
 			&& (colour.b == 31 || colour.b == 32)),
 		  source_full(source_alpha == 31), source_zero(source_alpha == 0),
