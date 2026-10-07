@@ -107,7 +107,10 @@ diff, lifecycle results, `REPORT.md`), `testbuild/ah-ddpdfk-tail-logs/`
 
 This is Linux host execution of the PS4 CPU object with a native rest-of-core,
 not PS4/Jaguar emulation and not measured hardware FPS. The 64 MiB mapping is
-anonymous, so on Linux only touched pages are resident; PS4 physical commitment
-of the larger mapping has not been measured on hardware, and the previously
-shipped 8 MiB mapping was verified there. The JIT is still disabled by default.
-No SELF/PKG/push/klog was performed as part of collecting this evidence.
+anonymous, so the reservation itself commits nothing; the cost is the code
+that is actually emitted. Measured peak RSS on a 20000-frame `ddpdfk.state`
+replay: 552.1 MB (8 MiB arena) vs 582.9 MB (64 MiB arena), i.e. +30.8 MB for
+~40 MiB of extra live code; at 600 frames the difference is +1.6 MB. PS4
+commitment of the larger mapping has not been measured on hardware, and the
+previously shipped 8 MiB mapping was verified there. The JIT is still disabled
+by default, and no new PKG was built for this change.

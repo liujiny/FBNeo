@@ -18,8 +18,11 @@ namespace Sh3X64 {
 // roughly every 1700 frames (~28 seconds) while 64MiB ran 20000 frames
 // (~5.5 minutes, 40.6MiB emitted) without a single wrap. The mapping is
 // anonymous and only touched pages are committed, so the larger arena costs
-// no resident memory; SLOTS is independent of this constant, so the block
-// table does not grow either.
+// no resident memory by itself; SLOTS is independent of this constant, so
+// the block table does not grow either. The cost of the larger arena is paid
+// only by code that is actually emitted: a 20000-frame session ends with
+// ~40MiB of code mapped (+31MiB RSS vs the 8MiB arena, measured at 600
+// frames it is +1.6MiB).
 enum { SLOTS = 32768, WAYS = 4, CACHE_SETS = SLOTS/WAYS, SLOT_BYTES = 8192,
        MAX_OPS = 32, MIN_OPS = FBNEO_SH3_JIT_MIN_OPS, CODE_BYTES = 64*1024*1024, REGS = 6 };
 typedef unsigned (*Entry)(UINT32 *, UINT32 *, UINT8 **, UINT8 **);
