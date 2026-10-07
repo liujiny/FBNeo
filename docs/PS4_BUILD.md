@@ -1,5 +1,9 @@
 # PS4 dynamic core build
 
+Start with [PS4_CV1000_OPTIMIZATION_PLAYBOOK.md](PS4_CV1000_OPTIMIZATION_PLAYBOOK.md):
+it collects the build/packaging pipeline, the verification gates, the measurement
+rules and the on-console klog debugging workflow used for the CV1000 work.
+
 Set ORBISDEV=/usr/local/orbisdev and OO_PS4_TOOLCHAIN=/opt/openorbis. Mount
 the project's OpenOrbis toolchain at /opt/openorbis in the Orbis build image,
 install lld, then run from src/burner/libretro:
