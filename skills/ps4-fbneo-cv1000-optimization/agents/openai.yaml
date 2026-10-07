@@ -1,0 +1,4 @@
+interface:
+  display_name: "PS4 FBNeo CV1000 优化与打包"
+  short_description: "Cave SH3 掉帧定位、JIT 改动、宿主演进回归与 PKG 发布"
+  default_prompt: "使用 $ps4-fbneo-cv1000-optimization 继续 CV1000 性能优化并打包验证。"
