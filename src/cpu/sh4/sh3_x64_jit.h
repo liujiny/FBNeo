@@ -110,7 +110,11 @@ struct Compiler {
 	const UINT16 *source;
 	int guest[REGS], age[REGS], clock;
 	bool dirty[REGS], locked[REGS];
-	Compiler(UINT32 address=0, const UINT16 *fetch=NULL) : size(0), ops(0), extra_cycles(0), nonbranch_cycles(0), pc(address), source(fetch), clock(0) {
+	// Set by instructions that already wrote the guest PC; compile() stops
+	// there and validates terminal_extra further source words (fused delay).
+	bool terminal;
+	unsigned terminal_extra;
+	Compiler(UINT32 address=0, const UINT16 *fetch=NULL) : size(0), ops(0), extra_cycles(0), nonbranch_cycles(0), pc(address), source(fetch), clock(0), terminal(false), terminal_extra(0) {
   guard_count=0;
 		for (int i=0;i<REGS;++i) { guest[i]=-1; age[i]=0; dirty[i]=locked[i]=false; }
 		byte(0x53); byte(0x41); byte(0x54); byte(0x41); byte(0x55); // preserve rbx,r12,r13
@@ -169,6 +173,15 @@ struct Compiler {
 	void set_global(UINT32 *p, UINT32 v) {
 		absolute(0,p); byte(0xc7); byte(0x00); word(v);
 	}
+	// Generated code may only use rax/rbx as scratch. abs_store keeps the
+	// source in any host register except rax (the address base).
+	void abs_load(int dst, const void *p) {
+		const int base=dst==0?3:0;
+		absolute(base,p); rex(dst,base); byte(0x8b); byte(((dst&7)<<3)|(base&7));
+	}
+	void abs_store(int src, const void *p) {
+		absolute(0,p); rex(src,0); byte(0x89); byte((src&7)<<3);
+	}
 	void finish(unsigned result=0xffffffff) {
 		for (int i=0;i<REGS;++i) if(dirty[i]) memory(true,host(i),7,guest[i]*4);
 		imm(0,result==0xffffffff?(ops|(nonbranch_cycles<<16)):result);
@@ -193,12 +206,13 @@ struct Compiler {
    finish(e.result);
   }
  }
-	bool store(UINT16 opcode, Sh3OpcodeHandler h) {
-		const bool pre=h==MOVBM || h==MOVWM || h==MOVLM;
+	// pr_value selects STS.L PR,@-Rn, which stores PR instead of a GPR.
+	bool store(UINT16 opcode, Sh3OpcodeHandler h, bool pr_value=false) {
+		const bool pre=pr_value || h==MOVBM || h==MOVWM || h==MOVLM;
 		const bool indexed=h==MOVBS0 || h==MOVWS0 || h==MOVLS0;
 		const bool displaced=h==MOVBS4 || h==MOVWS4 || h==MOVLS4;
 		const bool small=h==MOVBS4 || h==MOVWS4;
-		const int width=h==MOVBS || h==MOVBM || h==MOVBS0 || h==MOVBS4?1:
+		const int width=pr_value?4:h==MOVBS || h==MOVBM || h==MOVBS0 || h==MOVBS4?1:
 			h==MOVWS || h==MOVWM || h==MOVWS0 || h==MOVWS4?2:4;
 		int n=small?(opcode>>4)&15:(opcode>>8)&15, m=small?0:(opcode>>4)&15;
 		int address=reg(n); rr(0x89,13,address);
@@ -223,12 +237,62 @@ struct Compiler {
 		exits[count++]=jump(2);
 		byte(0x48);byte(0x01);byte(0xc3);
 		guard_exit(exits,count);
-		int value=reg(m);rr(0x89,0,value);
+		if(pr_value) { absolute(0,&m_pr); byte(0x8b); byte(0x00); } // eax=PR
+		else { int value=reg(m);rr(0x89,0,value); }
 		if(width==4) shift(0,0,16);
 		if(width==2) byte(0x66);
 		byte(width==1?0x88:0x89);byte(0x03); // [rbx]=al/ax/eax
 		if(pre) {immediate(5,address,width);changed(address);}
 		else {absolute(0,&m_ea);byte(0x44);byte(0x89);byte(0x28);}
+		return true;
+	}
+	// Write the guest PC exactly like the interpreter handler does, before
+	// any fused delay slot can observe or clobber its source register.
+	void emit_terminal(UINT16 opcode, Sh3OpcodeHandler h, UINT32 next, UINT32 target, bool link) {
+		const int n=(opcode>>8)&15;
+		if(h==RTS) {
+			abs_load(3,&m_pr);abs_store(3,&m_pc);abs_store(3,&m_ea);abs_store(3,&m_ppc);
+		} else if(h==JMP || h==JSR) {
+			int t=reg(n);abs_store(t,&m_pc);abs_store(t,&m_ea);abs_store(t,&m_ppc);
+		} else if(h==BRA || h==BSR) {
+			set_global(&m_pc,target);set_global(&m_ea,target);set_global(&m_ppc,target);
+		} else {
+			// BRAF/BSRF target m_pc + Rm + 2 and never write m_ea.
+			int t=reg(n);imm(0,next+2);rr(0x01,0,t);rr(0x89,3,0);
+			abs_store(3,&m_pc);abs_store(3,&m_ppc);
+		}
+		if(link) set_global(&m_pr,next+2);
+	}
+	// RTS/JMP/JSR/BRA/BSR/BRAF/BSRF end the region. A pure GPR/SR delay slot
+	// is fused inline; anything else is left to the interpreter via m_delay.
+	bool terminal_branch(UINT16 opcode, Sh3OpcodeHandler h) {
+		const UINT32 next=pc+ops*2+2;
+		const INT32 disp=((INT32)(opcode&0xfff)<<20)>>20;
+		// BRA $ relies on the interpreter's BUSY_LOOP_HACKS icount throttle.
+		if(h==BRA && disp==-2) return false;
+		const UINT32 target=h==BRA || h==BSR?next+2+(UINT32)(disp*2):0;
+		const bool link=h==JSR || h==BSR || h==BSRF;
+		const unsigned extra=h==JMP?0:1;
+		bool fused=false;
+		if(source && ops+1<MAX_OPS && (next&SH3_PAGEM)>=2) {
+			Compiler saved=*this;
+			emit_terminal(opcode,h,next,target,link);
+			if(alu(source[ops+1])) fused=true;
+			else {
+				size=saved.size;clock=saved.clock;nonbranch_cycles=saved.nonbranch_cycles;
+				guard_count=saved.guard_count;
+				for(int i=0;i<REGS;++i) {
+					guest[i]=saved.guest[i];age[i]=saved.age[i];dirty[i]=saved.dirty[i];locked[i]=saved.locked[i];
+				}
+			}
+		}
+		if(!fused) {
+			emit_terminal(opcode,h,next,target,link);
+			set_global(&m_ppc,next);set_global(&m_delay,next);
+		}
+		extra_cycles+=extra+(fused?1:0);
+		terminal=true;terminal_extra=fused?1:0;
+		finish(0x80000000|((nonbranch_cycles+extra)<<16)|(ops+1+(fused?1:0)));
 		return true;
 	}
 	bool branch(UINT16 opcode, Sh3OpcodeHandler h) {
@@ -262,15 +326,16 @@ struct Compiler {
 		patch(untaken);
 		extra_cycles=2;return true;
 	}
-	bool load(UINT16 opcode, Sh3OpcodeHandler h) {
-		const bool post=h==MOVBP || h==MOVWP || h==MOVLP;
+	// pr_target selects LDS.L @Rm+,PR, which loads PR instead of a GPR.
+	bool load(UINT16 opcode, Sh3OpcodeHandler h, bool pr_target=false) {
+		const bool post=pr_target || h==MOVBP || h==MOVWP || h==MOVLP;
 		const bool pc_relative=h==MOVWI || h==MOVLI;
 		const bool indexed=h==MOVBL0 || h==MOVWL0 || h==MOVLL0;
 		const bool displaced=h==MOVBL4 || h==MOVWL4 || h==MOVLL4;
 		const bool small_displaced=h==MOVBL4 || h==MOVWL4;
 		const int width=h==MOVBL || h==MOVBP || h==MOVBL0 || h==MOVBL4?1:
 			h==MOVWL || h==MOVWP || h==MOVWI || h==MOVWL0 || h==MOVWL4?2:4;
-		const int n=small_displaced?0:(opcode>>8)&15, m=(opcode>>4)&15;
+		const int n=pr_target?0:(small_displaced?0:(opcode>>8)&15), m=pr_target?(opcode>>8)&15:(opcode>>4)&15;
 		// PC-relative addresses are known while emitting, but the mapped data
 		// remains live: reload the read-map entry and its value on every run.
 		const UINT32 literal=h==MOVWI?pc+ops*2+4+(opcode&255)*2:((pc+ops*2+4)&~3)+(opcode&255)*4;
@@ -298,6 +363,13 @@ struct Compiler {
 		guard_exit(exits,count);
 		if(!pc_relative) {rr(0x89,0,13);immediate(4,0,SH3_PAGEM);}
 		if(width==1) immediate(6,0,1); // guest byte addressing is word-swapped
+		if(pr_target) {
+			// Read the mapped word into PR, then post-increment the source.
+			byte(0x8b);byte(0x04);byte(0x03); // eax=[rbx+rax]
+			if(width==4) shift(0,0,16);
+			absolute(3,&m_pr);byte(0x89);byte(0x03); // PR=eax
+			immediate(0,s,width);changed(s);
+		} else {
 		int d=reg(n,n==m && !pc_relative);
 		rex(d,3);
 		if(width<4) {byte(0x0f);byte(width==1?0xbe:0xbf);} else byte(0x8b);
@@ -306,6 +378,7 @@ struct Compiler {
 		if(width==4) shift(0,d,16);
 		changed(d);
 		if(post && n!=m) {immediate(0,s,width);changed(s);}
+		}
 		if(pc_relative) set_global(&m_ea,literal);
 		else if(!post) {
 			byte(0x48);byte(0xb8);uintptr_t ea=(uintptr_t)&m_ea;
@@ -356,6 +429,10 @@ struct Compiler {
 		for(int i=0;i<REGS;++i) locked[i]=false;
 		const Sh3OpcodeHandler h=opcode_dispatch[opcode];
 		if(h==BT || h==BF || h==BTS || h==BFS) return branch(opcode,h);
+		if(h==STSMPR) return store(opcode,h,true);
+		if(h==LDSMPR) return load(opcode,h,true);
+		if(h==RTS || h==JMP || h==JSR || h==BRA || h==BSR || h==BRAF || h==BSRF)
+			return terminal_branch(opcode,h);
 		if(h==DT) return decrement_test(opcode);
 		if(h==MULL || h==STSMACH || h==STSMACL || h==LDSMACH || h==LDSMACL) return multiply_mac(opcode,h);
 		if(h==MOVBS || h==MOVWS || h==MOVLS || h==MOVBM || h==MOVWM || h==MOVLM || h==MOVBS0 || h==MOVWS0 || h==MOVLS0 || h==MOVBS4 || h==MOVWS4 || h==MOVLS4)
@@ -454,6 +531,13 @@ static void compile(Block &b, UINT32 pc, const UINT16 *source) {
 		b.original[i]=source[i]; ++b.checked;
 		if(!c.op(source[i])) break;
 		++b.words; ++c.ops;
+		if(c.terminal) {
+			// A fused delay slot was compiled into this region, so its words
+			// belong to the entry validation set as well.
+			for(unsigned k=0;k<c.terminal_extra && i+1+k<MAX_OPS;++k) b.original[i+1+k]=source[i+1+k];
+			b.checked+=c.terminal_extra;
+			break;
+		}
 	}
 	b.extra_cycles=c.extra_cycles+c.nonbranch_cycles;
 	if(b.words<MIN_OPS) {
