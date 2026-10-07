@@ -347,7 +347,7 @@ static void native_dispatch_loop_cases() {
 
 
 static void arena_capacity_cases() {
- CHECK(Sh3X64::CODE_BYTES==8*1024*1024);
+ CHECK(Sh3X64::CODE_BYTES==64*1024*1024);
  public_dispatch=true;Sh3SetJitEnabled(1);Sh3X64::release();Sh3Reset();
  for(unsigned i=0;i<32768;++i)((UINT16*)memory)[i]=0x7101;
  m_pc=0x100;m_sr=0;compare(32,true);
@@ -362,7 +362,7 @@ static void arena_capacity_cases() {
  for(unsigned w=0;w<Sh3X64::WAYS;++w)CHECK(!Sh3X64::blocks[set*Sh3X64::WAYS+w].entry);
  ((UINT16*)memory)[0x80+9]=0x7107;m_pc=0x100;compare(32,true);
  Sh3X64::release();CHECK(!Sh3X64::code && !Sh3X64::blocks && !Sh3X64::used);public_dispatch=false;
- puts("PASS 8MiB arena boundary/recycle/stale-entry/edit/release");
+ puts("PASS 64MiB arena boundary/recycle/stale-entry/edit/release");
 }
 
 static void ram_run_cases() {

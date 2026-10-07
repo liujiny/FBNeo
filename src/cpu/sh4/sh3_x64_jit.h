@@ -12,8 +12,16 @@ namespace Sh3X64 {
 #ifndef FBNEO_SH3_JIT_MIN_OPS
 #define FBNEO_SH3_JIT_MIN_OPS 8
 #endif
+// A wrap clears every Block, and the whole working set is then recompiled
+// inside one frame: measured 18-26ms on the CV1000 (a dropped frame at
+// 60Hz). Observed rate is ~2kB of code emitted per frame, so 8MiB wraps
+// roughly every 1700 frames (~28 seconds) while 64MiB ran 20000 frames
+// (~5.5 minutes, 40.6MiB emitted) without a single wrap. The mapping is
+// anonymous and only touched pages are committed, so the larger arena costs
+// no resident memory; SLOTS is independent of this constant, so the block
+// table does not grow either.
 enum { SLOTS = 32768, WAYS = 4, CACHE_SETS = SLOTS/WAYS, SLOT_BYTES = 8192,
-       MAX_OPS = 32, MIN_OPS = FBNEO_SH3_JIT_MIN_OPS, CODE_BYTES = 8*1024*1024, REGS = 6 };
+       MAX_OPS = 32, MIN_OPS = FBNEO_SH3_JIT_MIN_OPS, CODE_BYTES = 64*1024*1024, REGS = 6 };
 typedef unsigned (*Entry)(UINT32 *, UINT32 *, UINT8 **, UINT8 **);
 struct Block {
 	UINT32 pc;
