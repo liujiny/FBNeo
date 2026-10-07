@@ -712,6 +712,12 @@ int main() {
   Sh3X64::Compiler probe;
   if(!probe.op(op)) continue;
   if(opcode_dispatch[op]==BT || opcode_dispatch[op]==BF || opcode_dispatch[op]==BTS || opcode_dispatch[op]==BFS) continue; // directed below
+  // Terminal branches end the region after one or two words, below the
+  // admission minimum, and STS.L PR/LDS.L PR need aligned operands. Both
+  // families are covered with valid prefixes in the directed sections below.
+  const Sh3OpcodeHandler family=opcode_dispatch[op];
+  if(family==RTS || family==JMP || family==JSR || family==BRA || family==BSR || family==BRAF || family==BSRF) continue;
+  if(family==STSMPR || family==LDSMPR) continue;
   ++accepted;
   for(int trial=0;trial<3;++trial) {
    Sh3Reset(); m_pc=0x100; m_sr=random32();
@@ -754,6 +760,72 @@ int main() {
   }
  }
  printf("PASS conditional branch encodings/boundaries=%u\n",branches);
+ // Terminal branches write the guest PC and end the region; a register-only
+ // delay slot is fused inline, and BRA $ keeps the interpreter's busy-loop
+ // throttle. Register-indirect targets stay aligned: an odd guest PC is
+ // outside this suite, exactly as for the random ALU streams above. A NOP
+ // prefix holds the region at the admission minimum, and the budgets straddle
+ // admission plus the fused delay-slot extra cycle. Changing only the delay
+ // slot between cases also exercises entry validation of the fused word.
+ unsigned terminal_cases=0;
+ static const INT32 displacements[]={0,1,2,3,5,8,16,64,256,1024,2047,-1,-3,-5,-8,-16,-64,-256,-1024,-2048};
+ for(unsigned op=0;op<65536;++op) {
+  const Sh3OpcodeHandler family=opcode_dispatch[op];
+  const bool indirect=family==JMP || family==JSR || family==BRAF || family==BSRF;
+  if(family!=RTS && !indirect && family!=BRA && family!=BSR) continue;
+  if((family==BRA || family==BSR) && (op&0xfff)!=0) continue; // displacements below
+  const unsigned source=indirect?(op>>8)&15:0;
+  const unsigned count=family==BRA || family==BSR?sizeof(displacements)/sizeof(displacements[0]):1;
+  for(unsigned d=0;d<count;++d) {
+   const UINT16 code=family==BRA || family==BSR?(UINT16)(op|(displacements[d]&0xfff)):op;
+   // slot 0/1/2 fuse (NOP, GPR add, add to the branch source); slot 3 is a
+   // store, which must stay with the interpreter through m_delay.
+   for(int slot=0;slot<4;++slot) for(int t=0;t<2;++t) for(int budget=9;budget<14;++budget) {
+    Sh3Reset();m_pc=0x400;m_sr=0x700000f0|t;
+    for(int i=0;i<32768;++i) ((UINT16*)memory)[i]=0x0009;
+    for(int r=0;r<16;++r) m_r[r]=0x4000+r*16;
+    m_pr=0x4020;
+    ((UINT16*)memory)[0x200+8]=code;
+    ((UINT16*)memory)[0x200+9]=slot==0?0x0009:slot==1?0x7101:slot==2?(UINT16)(0x7001|(source<<8)):0x1122;
+    const unsigned long long prior=Sh3X64::native_blocks;
+    compare(budget,true);
+    if(budget>=12) CHECK(Sh3X64::native_blocks>prior);
+    ++terminal_cases;
+   }
+  }
+ }
+ printf("PASS terminal branch family delay slots=%u\n",terminal_cases);
+ // STS.L PR/LDS.L PR move the link register through guest memory. The
+ // predecrement/postincrement effects, the loaded return address and the
+ // region exit through RTS are all compared against the interpreter.
+ unsigned pr_cases=0;
+ for(int alias=0;alias<3;++alias) for(int budget=9;budget<17;++budget) {
+  const UINT32 page=alias==1?0x10000:alias==2?0xa0000000:0;
+  Sh3Reset();m_pc=0x400;m_sr=0xf0;
+  for(int i=0;i<32768;++i) ((UINT16*)memory)[i]=0x0009;
+  ((UINT16*)memory)[0x200+6]=0x4122; // STS.L PR,@-R1
+  ((UINT16*)memory)[0x200+7]=0x4226; // LDS.L @R2+,PR
+  ((UINT16*)memory)[0x200+8]=0x000b; // RTS
+  for(int r=0;r<16;++r) m_r[r]=0x4000+r*16;
+  m_r[1]=page+0x5000+4;m_r[2]=page+0x5000;m_pr=0x4040;
+  const unsigned long long prior=Sh3X64::native_blocks;
+  compare(budget,true);
+  if(budget>=13) {
+   CHECK(Sh3X64::native_blocks>prior);
+   CHECK(m_r[1]==page+0x5000 && m_r[2]==page+0x5004);
+  }
+  ++pr_cases;
+ }
+ // The loaded PR must be the word the store wrote, so RTS returns there.
+ Sh3Reset();m_pc=0x400;m_sr=0xf0;
+ for(int i=0;i<32768;++i) ((UINT16*)memory)[i]=0x0009;
+ ((UINT16*)memory)[0x200+6]=0x4122;((UINT16*)memory)[0x200+7]=0x4226;((UINT16*)memory)[0x200+8]=0x000b;
+ for(int r=0;r<16;++r) m_r[r]=0x4000+r*16;
+ m_r[1]=0x5004;m_r[2]=0x5000;m_pr=0x4040;
+ compare(24,true);
+ CHECK(m_pr==0x4040);CHECK(m_r[1]==0x5000);CHECK(m_r[2]==0x5004);
+ CHECK(m_pc>=0x4040 && m_pc<=0x4040+2*24); // RTS returned to the stored word
+ printf("PASS PR store/load round trip cases=%u\n",pr_cases);
  // Nontrivial delay slots: all supported arithmetic encodings and an I/O
  // fallback. Each taken slot must execute once before entering the target.
  unsigned delay_cases=0;
@@ -778,7 +850,7 @@ int main() {
  printf("PASS native and device delay slots=%u\n",delay_cases);
  // A native store must see current write mappings and must not execute a
  // stale following opcode, including physical/host aliases and predecrement.
- const UINT16 stores[]={0x2120,0x2121,0x2122,0x2124,0x2125,0x2126,0x1120};
+ const UINT16 stores[]={0x2120,0x2121,0x2122,0x2124,0x2125,0x2126,0x1120,0x4122};
  unsigned store_cases=0;
  for(unsigned s=0;s<sizeof(stores)/sizeof(stores[0]);++s)
   for(int alias=0;alias<3;++alias) for(int pos=0;pos<2;++pos) {
@@ -790,6 +862,7 @@ int main() {
    int width=h==MOVBS || h==MOVBM?1:h==MOVWS || h==MOVWM?2:4;
    UINT32 target=0x120+(alias==1?0x10000:alias==2?0xa0000000:0);
    m_r[1]=target+(pre?width:0);m_r[2]=width==4?0xe5070009:width==2?0xe507:0xe5;
+   if(h==STSMPR) m_pr=width==4?0xe5070009:0; // STS.L PR stores the link register
    ((UINT16*)memory)[0x80+(pos?8:0)]=stores[s];
    compare(40,true);++store_cases;
   }
